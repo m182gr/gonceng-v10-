@@ -10,6 +10,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800;900&family=Poppins:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+   <script src="https://accounts.google.com/gsi/client" async defer></script>
 
 <style>
 /* ============================================================
@@ -232,6 +233,7 @@ a { text-decoration: none; color: inherit; }
 .btn-google:hover { border-color:#4285F4; box-shadow:0 4px 16px rgba(66,133,244,0.2); transform:translateY(-1px); }
 .btn-google svg { width:20px; height:20px; flex-shrink:0; }
 
+   
 .auth-divider { display:flex; align-items:center; gap:12px; margin:16px 0; }
 .auth-divider::before,.auth-divider::after { content:''; flex:1; height:1px; background:var(--border); }
 .auth-divider span { color:var(--text-muted); font-size:12px; font-weight:700; }
@@ -691,6 +693,8 @@ a { text-decoration: none; color: inherit; }
             Masuk dengan Google
           </button>
 
+          <div id="google-btn-container" style="width:100%;margin-bottom:10px;"></div>
+           
           <div class="auth-divider"><span>atau</span></div>
 
           <div class="form-group">
@@ -720,6 +724,8 @@ a { text-decoration: none; color: inherit; }
           </button>
           <div class="auth-divider"><span>atau isi form lengkap</span></div>
 
+<div id="google-btn-container" style="width:100%;margin-bottom:10px;"></div>
+           
           <div class="form-group">
             <label class="form-label">👤 Nama Lengkap *</label>
             <input class="form-input" type="text" id="reg-name" placeholder="Nama lengkap sesuai rapor">
@@ -1367,22 +1373,31 @@ async function submitRegister() {
   }
 }
 
-/* ── Google Login (simulasi — integrasikan Google Identity Services di produksi) ── */
 function loginWithGoogle() {
-  // Produksi: gunakan Google Identity Services
-  // https://developers.google.com/identity/gsi/web/guides/overview
-  // Contoh panggil: google.accounts.id.initialize({ client_id: 'YOUR_CLIENT_ID', callback: handleGoogleCredential });
-  // Untuk demo, simulasi flow incomplete
-  showToast('🔵 Google Login (Demo) — konfig client_id diperlukan','warning');
-
-  // Simulasi data Google yang diterima
-  const mockGoogleData = {
-    google_sub: 'GOOGLE_SUB_' + Date.now(),
-    google_email: 'siswa.demo@gmail.com',
-    google_name: 'Siswa Demo Google',
-    google_picture: '',
-  };
-  handleGoogleCredential(mockGoogleData);
+  google.accounts.id.initialize({
+    client_id: '563392434783-1gek7c0lbpdnhca5n68medo5v5lvrkrr.apps.googleusercontent.com',
+    callback: async (response) => {
+      // Decode JWT dari Google
+      const payload = JSON.parse(atob(response.credential.split('.')[1]));
+      await handleGoogleCredential({
+        google_sub:     payload.sub,
+        google_email:   payload.email,
+        google_name:    payload.name,
+        google_picture: payload.picture,
+      });
+    },
+    auto_select: false,
+    cancel_on_tap_outside: true,
+  });
+  google.accounts.id.prompt((notification) => {
+    if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
+      // Fallback: tampilkan popup manual
+      google.accounts.id.renderButton(
+        document.getElementById('google-btn-container'),
+        { theme: 'outline', size: 'large', width: '100%' }
+      );
+    }
+  });
 }
 
 async function handleGoogleCredential(googleData) {
