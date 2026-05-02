@@ -1,1031 +1,2081 @@
-// ============================================================
-//  GONCENG v10 — Google Apps Script Backend
-//  Sinkron dengan: gonceng_db_v10.xlsx
-//  Sekolah: SMAN 1 Widodaren, Ngawi, Jawa Timur
-//  Koordinat: -7.379897553058829, 111.2126637940821
-//
-//  Sheet: users | sekolah | bookings | payments |
-//         tarif_config | deviasi_requests | ratings
-//
-//  AUTH: Email+Password / Google OAuth (TANPA OTP WA)
-//
-//  CARA DEPLOY:
-//  1. Buka script.google.com → Project baru
-//  2. Paste seluruh kode ini
-//  3. Ganti SPREADSHEET_ID di bawah
-//  4. Jalankan setupSheets() sekali untuk inisialisasi
-//  5. Deploy → Web App → Execute as: Me, Who has access: Anyone
-//  6. Copy URL → paste ke GAS_URL di HTML
-// ============================================================
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#FF6B2C">
+<title>Gonceng v10 — Ride Sharing Pelajar SMAN 1 Widodaren</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800;900&family=Poppins:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
-const SPREADSHEET_ID = '1AV8L25IufXOTD4SohUZ_g7e2Ng1FuDq7TeieZ4NtYX0';
+<style>
+/* ============================================================
+   CSS VARIABLES & ROOT
+============================================================ */
+:root {
+  --primary: #FF6B2C;
+  --primary-light: #FF8C55;
+  --primary-dark: #E55A1F;
+  --secondary: #1E3A5F;
+  --secondary-light: #2A5080;
+  --accent: #FFD166;
+  --success: #06D6A0;
+  --danger: #EF476F;
+  --bg: #F5F7FA;
+  --surface: #FFFFFF;
+  --surface2: #F0F3F7;
+  --text: #1A1A2E;
+  --text-muted: #7A8499;
+  --border: #E2E8F0;
+  --shadow-sm: 0 2px 8px rgba(0,0,0,0.08);
+  --shadow-md: 0 4px 20px rgba(0,0,0,0.12);
+  --shadow-lg: 0 8px 40px rgba(0,0,0,0.16);
+  --radius-sm: 10px;
+  --radius-md: 16px;
+  --radius-lg: 24px;
+  --radius-xl: 32px;
+  --font-main: 'Nunito', sans-serif;
+  --font-heading: 'Poppins', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+  --nav-height: 68px;
+  --sidebar-width: 240px;
+  --ads-height: 80px; /* 20% estimasi layar mobile */
+  --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+:root.driver-mode {
+  --primary: #1E90FF;
+  --primary-light: #42A8FF;
+  --primary-dark: #0D6EBD;
+  --secondary: #0D47A1;
+}
 
-// ── Nama sheet ─────────────────────────────────────────────
-const SHEET = {
-  USERS:     'users',
-  SEKOLAH:   'sekolah',
-  BOOKINGS:  'bookings',
-  PAYMENTS:  'payments',
-  TARIF:     'tarif_config',
-  DEVIASI:   'deviasi_requests',
-  RATINGS:   'ratings',
-  RINGKASAN: 'RINGKASAN',
-  SESSIONS:  '_sessions',  // Session token (ganti OTP)
+/* ============================================================
+   RESET & BASE
+============================================================ */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  width: 100%; height: 100%;
+  overflow: hidden;
+  font-family: var(--font-main);
+  background: var(--bg);
+  color: var(--text);
+  -webkit-tap-highlight-color: transparent;
+  -webkit-font-smoothing: antialiased;
+}
+button { font-family: var(--font-main); cursor: pointer; border: none; outline: none; }
+input, select, textarea { font-family: var(--font-main); outline: none; border: none; }
+a { text-decoration: none; color: inherit; }
+
+/* ============================================================
+   ANIMATIONS
+============================================================ */
+@keyframes fadeUp { from{opacity:0;transform:translateY(24px)}to{opacity:1;transform:translateY(0)} }
+@keyframes fadeIn { from{opacity:0}to{opacity:1} }
+@keyframes slideRight { from{opacity:0;transform:translateX(-30px)}to{opacity:1;transform:translateX(0)} }
+@keyframes slideLeft { from{opacity:0;transform:translateX(30px)}to{opacity:1;transform:translateX(0)} }
+@keyframes pulse { 0%,100%{transform:scale(1)}50%{transform:scale(1.05)} }
+@keyframes spin { to{transform:rotate(360deg)} }
+@keyframes pingRipple { 0%{transform:scale(1);opacity:1}100%{transform:scale(2.5);opacity:0} }
+@keyframes blobFloat { 0%,100%{transform:translateY(0) rotate(0deg)}50%{transform:translateY(-20px) rotate(3deg)} }
+@keyframes shimmer { 0%{background-position:-200% 0}100%{background-position:200% 0} }
+@keyframes bounceIn { 0%{transform:scale(0.3);opacity:0}50%{transform:scale(1.05)}70%{transform:scale(0.9)}100%{transform:scale(1);opacity:1} }
+@keyframes adSlide { 0%{opacity:0;transform:translateY(10px)}100%{opacity:1;transform:translateY(0)} }
+@keyframes alarmPulse { 0%,100%{box-shadow:0 0 0 0 rgba(239,71,111,0.4)}70%{box-shadow:0 0 0 10px rgba(239,71,111,0)} }
+
+/* ============================================================
+   APP SHELL
+============================================================ */
+#app { width:100vw; height:100dvh; position:relative; overflow:hidden; display:flex; }
+
+/* Sidebar — desktop */
+#sidebar {
+  display:none; width:var(--sidebar-width); min-height:100dvh;
+  background:var(--secondary); flex-direction:column; padding:0;
+  z-index:100; flex-shrink:0; transition:var(--transition);
+}
+#sidebar-logo {
+  padding:28px 20px 20px; display:flex; align-items:center; gap:12px;
+  border-bottom:1px solid rgba(255,255,255,0.1);
+}
+#sidebar-logo .logo-icon { width:44px; height:44px; background:var(--primary); border-radius:14px; display:flex; align-items:center; justify-content:center; font-size:22px; flex-shrink:0; }
+#sidebar-logo .logo-text { color:white; }
+#sidebar-logo .logo-text h3 { font-family:var(--font-heading); font-size:18px; font-weight:700; line-height:1; }
+#sidebar-logo .logo-text span { font-size:11px; color:rgba(255,255,255,0.5); font-weight:500; }
+#sidebar-user { padding:16px 20px; display:flex; align-items:center; gap:10px; border-bottom:1px solid rgba(255,255,255,0.08); }
+#sidebar-user .su-avatar { width:36px; height:36px; background:var(--primary); border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:16px; flex-shrink:0; }
+#sidebar-user .su-info { flex:1; min-width:0; }
+#sidebar-user .su-name { color:white; font-size:13px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+#sidebar-user .su-class { color:rgba(255,255,255,0.5); font-size:11px; }
+#sidebar-nav { flex:1; padding:12px 0; overflow-y:auto; }
+.sidebar-nav-item {
+  display:flex; align-items:center; gap:12px;
+  padding:12px 20px; color:rgba(255,255,255,0.55);
+  font-size:14px; font-weight:600; cursor:pointer;
+  transition:var(--transition); position:relative;
+}
+.sidebar-nav-item:hover { color:white; background:rgba(255,255,255,0.07); }
+.sidebar-nav-item.active { color:white; background:rgba(255,255,255,0.12); }
+.sidebar-nav-item.active::before { content:''; position:absolute; left:0; top:50%; transform:translateY(-50%); width:4px; height:60%; background:var(--primary); border-radius:0 4px 4px 0; }
+.sidebar-nav-item .nav-icon { font-size:18px; width:22px; text-align:center; }
+#sidebar-bottom { padding:16px 20px; border-top:1px solid rgba(255,255,255,0.08); }
+.sidebar-mode-badge {
+  background:rgba(255,255,255,0.1); border-radius:8px; padding:8px 12px;
+  color:rgba(255,255,255,0.7); font-size:12px; font-weight:600;
+  display:flex; align-items:center; gap:8px; cursor:pointer; transition:var(--transition);
+}
+.sidebar-mode-badge:hover { background:rgba(255,255,255,0.18); color:white; }
+
+#main-content { flex:1; height:100dvh; overflow:hidden; position:relative; display:flex; flex-direction:column; }
+
+/* ============================================================
+   BOTTOM NAV
+============================================================ */
+#bottom-nav {
+  position:fixed; bottom:0; left:0; right:0;
+  height:var(--nav-height); background:var(--surface);
+  border-top:1px solid var(--border); display:flex;
+  z-index:200; padding-bottom:env(safe-area-inset-bottom,0);
+  box-shadow:0 -4px 20px rgba(0,0,0,0.08);
+}
+.bnav-item { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px; cursor:pointer; color:var(--text-muted); transition:var(--transition); position:relative; }
+.bnav-item.active { color:var(--primary); }
+.bnav-item .bnav-icon { font-size:22px; transition:var(--transition); }
+.bnav-item .bnav-label { font-size:10px; font-weight:700; letter-spacing:0.3px; }
+.bnav-item.active .bnav-icon { transform:translateY(-2px); }
+.bnav-dot { position:absolute; top:10px; right:calc(50% - 16px); width:7px; height:7px; background:var(--danger); border-radius:50%; border:2px solid white; }
+
+/* ============================================================
+   SCREENS
+============================================================ */
+.screen { position:absolute; inset:0; width:100%; height:100%; display:none; flex-direction:column; overflow-y:auto; overflow-x:hidden; background:var(--bg); }
+.screen.active { display:flex; animation:slideLeft 0.35s cubic-bezier(0.4,0,0.2,1); }
+.screen.slide-back.active { animation:slideRight 0.35s cubic-bezier(0.4,0,0.2,1); }
+.screen.has-nav { padding-bottom:var(--nav-height); }
+
+/* ============================================================
+   SPLASH SCREEN
+============================================================ */
+#screen-splash { background:linear-gradient(135deg,var(--secondary) 0%,#0A1628 100%); align-items:center; justify-content:center; overflow:hidden; }
+.splash-blob { position:absolute; border-radius:50%; opacity:0.12; animation:blobFloat 6s ease-in-out infinite; }
+.splash-blob.b1 { width:300px; height:300px; background:var(--primary); top:-100px; right:-80px; }
+.splash-blob.b2 { width:200px; height:200px; background:#FFD166; bottom:-60px; left:-40px; animation-delay:2s; }
+.splash-blob.b3 { width:150px; height:150px; background:var(--primary); bottom:100px; right:20px; animation-delay:4s; }
+.splash-content { text-align:center; z-index:1; animation:fadeUp 0.8s ease; }
+.splash-logo-wrap { width:100px; height:100px; background:var(--primary); border-radius:28px; margin:0 auto 24px; display:flex; align-items:center; justify-content:center; font-size:52px; box-shadow:0 20px 60px rgba(255,107,44,0.5); animation:bounceIn 1s cubic-bezier(0.4,0,0.2,1) 0.2s both; }
+.splash-title { font-family:var(--font-heading); font-size:40px; font-weight:700; color:white; letter-spacing:-1px; animation:fadeUp 0.6s ease 0.4s both; }
+.splash-title span { color:var(--primary); }
+.splash-tagline { color:rgba(255,255,255,0.5); font-size:14px; font-weight:500; margin-top:8px; animation:fadeUp 0.6s ease 0.5s both; }
+.splash-version { color:rgba(255,255,255,0.3); font-size:11px; margin-top:4px; font-family:var(--font-mono); }
+.splash-spinner { width:36px; height:36px; border:3px solid rgba(255,255,255,0.15); border-top-color:var(--primary); border-radius:50%; animation:spin 0.8s linear infinite; margin:40px auto 0; }
+
+/* ============================================================
+   ONBOARDING
+============================================================ */
+#screen-onboard { background:linear-gradient(160deg,var(--secondary) 0%,#0A1628 60%,var(--secondary) 100%); align-items:center; justify-content:center; padding:24px; overflow:hidden; }
+.onboard-slides { width:100%; max-width:360px; text-align:center; }
+.onboard-emoji { font-size:72px; margin-bottom:20px; animation:blobFloat 4s ease-in-out infinite; }
+.onboard-title { font-family:var(--font-heading); font-size:28px; font-weight:700; color:white; margin-bottom:12px; line-height:1.2; }
+.onboard-title em { color:var(--primary); font-style:normal; }
+.onboard-desc { color:rgba(255,255,255,0.6); font-size:15px; line-height:1.6; }
+.onboard-dots { display:flex; gap:8px; justify-content:center; margin:28px 0; }
+.onboard-dot { width:8px; height:8px; border-radius:4px; background:rgba(255,255,255,0.2); transition:var(--transition); }
+.onboard-dot.active { width:24px; background:var(--primary); }
+.btn-onboard-next { width:100%; padding:16px; border-radius:var(--radius-lg); background:var(--primary); color:white; font-size:16px; font-weight:700; cursor:pointer; transition:var(--transition); box-shadow:0 8px 24px rgba(255,107,44,0.4); }
+.btn-onboard-next:hover { transform:translateY(-2px); }
+.btn-onboard-skip { display:block; margin-top:14px; color:rgba(255,255,255,0.4); font-size:13px; font-weight:600; cursor:pointer; background:none; transition:var(--transition); padding:4px; }
+.btn-onboard-skip:hover { color:rgba(255,255,255,0.7); }
+
+/* ============================================================
+   AUTH SCREEN v10 (Email/Password/Google)
+============================================================ */
+#screen-auth { background:linear-gradient(160deg,var(--secondary) 0%,#0A1628 50%,#12243A 100%); align-items:center; justify-content:center; padding:24px; overflow-y:auto; }
+.auth-card { width:100%; max-width:420px; background:var(--surface); border-radius:var(--radius-xl); padding:32px 28px; box-shadow:var(--shadow-lg); animation:fadeUp 0.5s ease; }
+.auth-header { text-align:center; margin-bottom:24px; }
+.auth-header .auth-logo { font-size:40px; margin-bottom:10px; }
+.auth-header h2 { font-family:var(--font-heading); font-size:22px; font-weight:700; color:var(--text); }
+.auth-header p { color:var(--text-muted); font-size:13px; margin-top:4px; }
+.auth-school-badge { display:inline-flex; align-items:center; gap:6px; background:rgba(255,107,44,0.1); color:var(--primary); font-size:11px; font-weight:700; padding:4px 12px; border-radius:100px; margin-top:8px; }
+
+.auth-tabs { display:flex; background:var(--surface2); border-radius:var(--radius-md); padding:4px; gap:4px; margin-bottom:22px; }
+.auth-tab { flex:1; padding:10px; border-radius:var(--radius-sm); font-size:13px; font-weight:700; cursor:pointer; background:transparent; color:var(--text-muted); transition:var(--transition); }
+.auth-tab.active { background:var(--surface); color:var(--primary); box-shadow:var(--shadow-sm); }
+
+.form-group { margin-bottom:14px; }
+.form-label { display:block; font-size:12px; font-weight:700; color:var(--text-muted); margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px; }
+.form-input { width:100%; padding:13px 16px; border:2px solid var(--border); border-radius:var(--radius-md); font-size:15px; font-weight:600; color:var(--text); background:var(--surface); transition:var(--transition); -webkit-appearance:none; }
+.form-input:focus { border-color:var(--primary); box-shadow:0 0 0 3px rgba(255,107,44,0.1); }
+.form-input-eye { position:relative; }
+.form-input-eye input { padding-right:48px; }
+.eye-btn { position:absolute; right:14px; top:50%; transform:translateY(-50%); background:none; border:none; cursor:pointer; font-size:18px; color:var(--text-muted); padding:4px; }
+.form-select { width:100%; padding:13px 16px; border:2px solid var(--border); border-radius:var(--radius-md); font-size:15px; font-weight:600; color:var(--text); background:var(--surface); cursor:pointer; -webkit-appearance:none; appearance:none; background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%237A8499' stroke-width='2' fill='none' stroke-linecap='round'/%3E%3C/svg%3E"); background-repeat:no-repeat; background-position:right 16px center; transition:var(--transition); }
+.form-select:focus { border-color:var(--primary); box-shadow:0 0 0 3px rgba(255,107,44,0.1); outline:none; }
+.form-row { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+
+.btn-primary { width:100%; padding:15px; border-radius:var(--radius-lg); background:var(--primary); color:white; font-size:15px; font-weight:800; cursor:pointer; transition:var(--transition); letter-spacing:0.3px; box-shadow:0 6px 20px rgba(255,107,44,0.35); }
+.btn-primary:hover { transform:translateY(-2px); box-shadow:0 10px 28px rgba(255,107,44,0.45); }
+.btn-primary:active { transform:translateY(0); }
+.btn-primary:disabled { opacity:0.6; cursor:not-allowed; transform:none; }
+.btn-secondary { width:100%; padding:15px; border-radius:var(--radius-lg); background:var(--surface2); color:var(--text); font-size:15px; font-weight:700; cursor:pointer; transition:var(--transition); }
+.btn-secondary:hover { background:var(--border); }
+
+/* Google Sign-In Button */
+.btn-google {
+  width:100%; padding:14px; border-radius:var(--radius-lg);
+  background:white; color:#333; font-size:14px; font-weight:700;
+  cursor:pointer; transition:var(--transition);
+  border:2px solid var(--border); display:flex; align-items:center; justify-content:center; gap:10px;
+  box-shadow:var(--shadow-sm);
+}
+.btn-google:hover { border-color:#4285F4; box-shadow:0 4px 16px rgba(66,133,244,0.2); transform:translateY(-1px); }
+.btn-google svg { width:20px; height:20px; flex-shrink:0; }
+
+.auth-divider { display:flex; align-items:center; gap:12px; margin:16px 0; }
+.auth-divider::before,.auth-divider::after { content:''; flex:1; height:1px; background:var(--border); }
+.auth-divider span { color:var(--text-muted); font-size:12px; font-weight:700; }
+
+.auth-link { text-align:center; font-size:13px; color:var(--text-muted); margin-top:14px; }
+.auth-link span { color:var(--primary); font-weight:700; cursor:pointer; }
+
+/* Google Completion Form */
+#panel-google-complete { animation:fadeUp 0.4s ease; }
+.google-user-preview { display:flex; align-items:center; gap:12px; background:var(--surface2); border-radius:var(--radius-md); padding:14px; margin-bottom:18px; }
+.google-user-preview .gu-avatar { width:44px; height:44px; border-radius:50%; background:var(--primary); display:flex; align-items:center; justify-content:center; font-size:20px; flex-shrink:0; overflow:hidden; }
+.google-user-preview .gu-avatar img { width:100%; height:100%; object-fit:cover; border-radius:50%; }
+.google-user-preview .gu-info { flex:1; }
+.google-user-preview .gu-name { font-size:14px; font-weight:700; color:var(--text); }
+.google-user-preview .gu-email { font-size:12px; color:var(--text-muted); }
+
+/* ============================================================
+   ADS BANNER — 20% layar, responsif, non-blocking
+============================================================ */
+.ads-banner-container {
+  width:100%; height:var(--ads-height);
+  background:var(--surface2); border-top:1px solid var(--border);
+  display:flex; align-items:center; justify-content:center;
+  overflow:hidden; flex-shrink:0; position:relative;
+  animation:adSlide 0.6s ease;
+}
+.ads-banner-inner {
+  width:100%; height:100%;
+  display:flex; align-items:center; justify-content:center;
+  position:relative;
+}
+/* Placeholder AdSense / AdMob slot */
+.ads-placeholder {
+  width:100%; height:100%; display:flex; align-items:center; justify-content:center;
+  background:linear-gradient(90deg, #f0f3f7, #e8ecf2, #f0f3f7);
+  background-size:200% 100%; animation:shimmer 2s linear infinite;
+  font-size:12px; color:var(--text-muted); font-weight:600;
+  letter-spacing:0.5px;
+}
+.ads-close-btn {
+  position:absolute; top:4px; right:8px;
+  background:rgba(0,0,0,0.1); border:none; border-radius:50%;
+  width:20px; height:20px; font-size:10px; cursor:pointer;
+  color:var(--text-muted); display:flex; align-items:center; justify-content:center;
+  transition:var(--transition); z-index:5;
+}
+.ads-close-btn:hover { background:rgba(0,0,0,0.2); }
+/* Slot AdSense/AdMob — aktifkan saat live */
+.ads-adsense-slot { display:none; width:100%; height:100%; }
+/* Responsif */
+@media (min-width:768px) {
+  :root { --ads-height: 90px; }
+  .ads-banner-container { border-radius:var(--radius-md); margin:0 8px; width:calc(100% - 16px); }
+}
+@media (min-width:1024px) {
+  :root { --ads-height: 100px; }
+}
+
+/* ============================================================
+   HOME SCREEN
+============================================================ */
+#screen-home { background:var(--bg); }
+.home-header { background:linear-gradient(135deg,var(--secondary) 0%,#122A4A 100%); padding:20px 20px 60px; position:relative; overflow:hidden; }
+.home-header-blob { position:absolute; border-radius:50%; opacity:0.08; }
+.home-header-blob.hb1 { width:200px; height:200px; background:var(--primary); top:-60px; right:-40px; }
+.home-header-blob.hb2 { width:120px; height:120px; background:var(--accent); bottom:0; left:20px; }
+.home-top-bar { display:flex; align-items:center; justify-content:space-between; position:relative; z-index:1; }
+.home-greeting .hi-text { color:rgba(255,255,255,0.6); font-size:13px; font-weight:600; }
+.home-greeting .hi-name { color:white; font-size:20px; font-weight:800; line-height:1.1; }
+.home-greeting .hi-school { color:rgba(255,255,255,0.5); font-size:12px; margin-top:2px; }
+.notif-btn { width:40px; height:40px; border-radius:12px; background:rgba(255,255,255,0.12); display:flex; align-items:center; justify-content:center; font-size:18px; cursor:pointer; position:relative; }
+.notif-badge { position:absolute; top:6px; right:6px; width:8px; height:8px; background:var(--danger); border-radius:50%; border:2px solid transparent; }
+.home-card { margin:-40px 16px 0; background:var(--surface); border-radius:var(--radius-xl); padding:20px; box-shadow:var(--shadow-md); position:relative; z-index:2; animation:fadeUp 0.5s ease 0.2s both; }
+.home-card-title { font-size:13px; font-weight:700; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:14px; display:flex; align-items:center; gap:8px; }
+.quick-actions { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
+.qa-btn { display:flex; flex-direction:column; align-items:center; gap:8px; padding:16px 8px; border-radius:var(--radius-md); background:var(--surface2); cursor:pointer; transition:var(--transition); border:2px solid transparent; }
+.qa-btn:hover { border-color:var(--primary); background:rgba(255,107,44,0.05); transform:translateY(-2px); }
+.qa-btn .qa-icon { font-size:28px; }
+.qa-btn .qa-label { font-size:11px; font-weight:700; color:var(--text); text-align:center; line-height:1.2; }
+.home-section { padding:20px 16px 0; animation:fadeUp 0.5s ease 0.35s both; }
+.home-section-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }
+.home-section-title { font-size:16px; font-weight:800; color:var(--text); }
+.home-section-link { font-size:12px; font-weight:700; color:var(--primary); cursor:pointer; }
+.trip-card { background:var(--surface); border-radius:var(--radius-md); padding:16px; margin-bottom:10px; box-shadow:var(--shadow-sm); display:flex; align-items:center; gap:14px; cursor:pointer; transition:var(--transition); }
+.trip-card:hover { box-shadow:var(--shadow-md); transform:translateY(-1px); }
+.trip-icon { width:44px; height:44px; border-radius:var(--radius-sm); display:flex; align-items:center; justify-content:center; font-size:20px; flex-shrink:0; }
+.trip-icon.to-school { background:rgba(255,107,44,0.1); }
+.trip-icon.to-home { background:rgba(6,214,160,0.1); }
+.trip-info { flex:1; min-width:0; }
+.trip-route { font-size:13px; font-weight:700; color:var(--text); }
+.trip-meta { font-size:11px; color:var(--text-muted); margin-top:2px; }
+.trip-cost { font-family:var(--font-mono); font-size:14px; font-weight:700; color:var(--primary); }
+.promo-banner { margin:16px; background:linear-gradient(135deg,var(--primary) 0%,var(--primary-dark) 100%); border-radius:var(--radius-lg); padding:18px; display:flex; align-items:center; gap:16px; animation:fadeUp 0.5s ease 0.45s both; }
+.promo-text { flex:1; }
+.promo-text h4 { color:white; font-size:15px; font-weight:800; }
+.promo-text p { color:rgba(255,255,255,0.75); font-size:12px; margin-top:2px; }
+.promo-emoji { font-size:42px; }
+
+/* ============================================================
+   BOOKING SCREEN
+============================================================ */
+#screen-booking { background:var(--bg); }
+.booking-header { background:var(--surface); padding:16px 20px; display:flex; align-items:center; gap:12px; border-bottom:1px solid var(--border); flex-shrink:0; box-shadow:var(--shadow-sm); }
+.back-btn { width:38px; height:38px; border-radius:var(--radius-sm); background:var(--surface2); display:flex; align-items:center; justify-content:center; font-size:18px; cursor:pointer; transition:var(--transition); flex-shrink:0; }
+.back-btn:hover { background:var(--border); }
+.booking-header h2 { font-size:18px; font-weight:800; color:var(--text); }
+.step-indicator { display:flex; align-items:center; padding:16px 20px; background:var(--surface); border-bottom:1px solid var(--border); flex-shrink:0; }
+.step-item { display:flex; flex-direction:column; align-items:center; gap:4px; flex:1; }
+.step-circle { width:28px; height:28px; border-radius:50%; border:2px solid var(--border); background:var(--surface); display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:800; color:var(--text-muted); transition:var(--transition); }
+.step-item.active .step-circle { border-color:var(--primary); background:var(--primary); color:white; }
+.step-item.done .step-circle { border-color:var(--success); background:var(--success); color:white; }
+.step-label { font-size:9px; font-weight:700; color:var(--text-muted); text-align:center; }
+.step-item.active .step-label { color:var(--primary); }
+.step-line { flex:1; height:2px; background:var(--border); margin:0 4px; margin-bottom:18px; max-width:30px; transition:var(--transition); }
+.step-line.done { background:var(--success); }
+.booking-body { flex:1; overflow-y:auto; padding:16px; }
+.location-card { background:var(--surface); border-radius:var(--radius-lg); padding:16px; margin-bottom:14px; box-shadow:var(--shadow-sm); }
+.loc-header { display:flex; align-items:center; gap:10px; margin-bottom:14px; }
+.loc-header h3 { font-size:15px; font-weight:800; }
+.loc-header .loc-badge { background:rgba(255,107,44,0.1); color:var(--primary); font-size:10px; font-weight:700; padding:3px 8px; border-radius:6px; }
+.loc-point { display:flex; align-items:flex-start; gap:12px; padding:10px 0; border-bottom:1px solid var(--border); }
+.loc-point:last-child { border-bottom:none; padding-bottom:0; }
+.loc-dot-wrap { display:flex; flex-direction:column; align-items:center; gap:3px; padding-top:4px; }
+.loc-dot { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
+.loc-dot.origin { background:var(--success); }
+.loc-dot.dest { background:var(--primary); }
+.loc-line-seg { width:2px; height:20px; background:var(--border); }
+.loc-info { flex:1; }
+.loc-label { font-size:10px; font-weight:700; color:var(--text-muted); text-transform:uppercase; margin-bottom:2px; }
+.loc-addr { font-size:14px; font-weight:600; color:var(--text); }
+.loc-coords { font-size:11px; font-family:var(--font-mono); color:var(--text-muted); margin-top:2px; }
+.dest-options { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; margin-bottom:14px; }
+.dest-opt { padding:12px 8px; border-radius:var(--radius-md); border:2px solid var(--border); background:var(--surface); text-align:center; cursor:pointer; transition:var(--transition); }
+.dest-opt.selected { border-color:var(--primary); background:rgba(255,107,44,0.05); }
+.dest-opt .do-icon { font-size:22px; }
+.dest-opt .do-label { font-size:11px; font-weight:700; color:var(--text); margin-top:4px; }
+#peta-booking { height:220px; border-radius:var(--radius-lg); overflow:hidden; margin-bottom:14px; border:2px solid var(--border); }
+.fare-estimate { background:var(--surface); border-radius:var(--radius-lg); padding:16px; box-shadow:var(--shadow-sm); margin-bottom:14px; }
+.fare-row { display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid var(--border); font-size:14px; }
+.fare-row:last-child { border-bottom:none; }
+.fare-row .fr-label { color:var(--text-muted); font-weight:600; }
+.fare-row .fr-val { font-weight:700; color:var(--text); }
+.fare-row.total .fr-label { color:var(--text); font-weight:800; font-size:15px; }
+.fare-row.total .fr-val { font-family:var(--font-mono); font-size:17px; font-weight:800; color:var(--primary); }
+
+/* ============================================================
+   ORDER SUMMARY
+============================================================ */
+#screen-order-summary { background:var(--bg); }
+.summary-card { background:var(--surface); border-radius:var(--radius-xl); margin:16px; padding:20px; box-shadow:var(--shadow-md); animation:fadeUp 0.4s ease; }
+.summary-card h3 { font-size:14px; font-weight:800; color:var(--text); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:14px; padding-bottom:12px; border-bottom:2px dashed var(--border); }
+.summary-row { display:flex; gap:10px; padding:8px 0; border-bottom:1px solid var(--border); align-items:flex-start; }
+.summary-row:last-child { border-bottom:none; }
+.summary-row .sr-key { font-size:12px; color:var(--text-muted); font-weight:700; min-width:80px; padding-top:1px; }
+.summary-row .sr-val { font-size:13px; font-weight:700; color:var(--text); flex:1; }
+.summary-row .sr-val.price { font-family:var(--font-mono); color:var(--primary); font-size:15px; }
+.copy-btn-wrap { margin:16px; animation:fadeUp 0.4s ease 0.2s both; }
+.btn-copy { width:100%; padding:16px; border-radius:var(--radius-lg); background:linear-gradient(135deg,var(--secondary),#0A1628); color:white; font-size:15px; font-weight:800; cursor:pointer; transition:var(--transition); display:flex; align-items:center; justify-content:center; gap:10px; box-shadow:0 6px 20px rgba(30,58,95,0.4); }
+.btn-copy:hover { transform:translateY(-2px); }
+.btn-copy.copied { background:linear-gradient(135deg,var(--success),#04A87E); }
+.btn-find-driver { width:100%; padding:16px; border-radius:var(--radius-lg); background:var(--primary); color:white; font-size:15px; font-weight:800; cursor:pointer; transition:var(--transition); display:flex; align-items:center; justify-content:center; gap:10px; box-shadow:0 6px 20px rgba(255,107,44,0.35); }
+.btn-find-driver:hover { transform:translateY(-2px); }
+
+/* ============================================================
+   DRIVER LIST
+============================================================ */
+#screen-driver-list { background:var(--bg); }
+.driver-list-header { background:var(--surface); padding:16px 20px; border-bottom:1px solid var(--border); flex-shrink:0; }
+.driver-filter-info { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
+.filter-chip { background:var(--surface2); border-radius:100px; padding:5px 12px; font-size:11px; font-weight:700; color:var(--text-muted); display:flex; align-items:center; gap:4px; }
+.filter-chip.active { background:rgba(255,107,44,0.1); color:var(--primary); }
+.drivers-grid { padding:16px; display:flex; flex-direction:column; gap:12px; }
+.driver-card { background:var(--surface); border-radius:var(--radius-lg); padding:16px; box-shadow:var(--shadow-sm); display:flex; align-items:center; gap:14px; cursor:pointer; transition:var(--transition); border:2px solid transparent; animation:fadeUp 0.4s ease both; }
+.driver-card:hover { border-color:var(--primary); box-shadow:var(--shadow-md); transform:translateY(-2px); }
+.driver-avatar { width:52px; height:52px; border-radius:var(--radius-md); flex-shrink:0; background:linear-gradient(135deg,var(--primary) 0%,var(--primary-dark) 100%); display:flex; align-items:center; justify-content:center; font-size:24px; }
+.driver-info { flex:1; min-width:0; }
+.driver-name { font-size:15px; font-weight:800; color:var(--text); }
+.driver-class { font-size:12px; color:var(--text-muted); font-weight:600; margin-top:1px; }
+.driver-meta { display:flex; gap:8px; flex-wrap:wrap; margin-top:6px; }
+.driver-badge { font-size:10px; font-weight:700; padding:3px 8px; border-radius:6px; display:flex; align-items:center; gap:3px; }
+.driver-badge.vehicle { background:rgba(30,58,95,0.08); color:var(--secondary); }
+.driver-badge.rating { background:rgba(255,209,102,0.2); color:#B8860B; }
+.wa-btn { background:#25D366; color:white; border-radius:var(--radius-md); padding:10px 14px; font-size:13px; font-weight:800; display:flex; align-items:center; gap:6px; cursor:pointer; transition:var(--transition); flex-shrink:0; box-shadow:0 4px 12px rgba(37,211,102,0.35); }
+.wa-btn:hover { transform:scale(1.05); }
+.no-driver-msg { text-align:center; padding:40px 20px; animation:fadeUp 0.4s ease; }
+.no-driver-msg .nd-emoji { font-size:56px; margin-bottom:16px; }
+.no-driver-msg h3 { font-size:18px; font-weight:800; color:var(--text); margin-bottom:8px; }
+.no-driver-msg p { color:var(--text-muted); font-size:14px; line-height:1.5; }
+
+/* ============================================================
+   CHAT REDIRECT
+============================================================ */
+#screen-chat-redirect { background:linear-gradient(160deg,#075E54 0%,#128C7E 100%); align-items:center; justify-content:center; padding:32px 24px; }
+.chat-redirect-content { text-align:center; max-width:340px; animation:fadeUp 0.5s ease; }
+.wa-big-icon { font-size:80px; margin-bottom:20px; animation:blobFloat 4s ease-in-out infinite; }
+.chat-redirect-content h2 { font-family:var(--font-heading); font-size:26px; font-weight:700; color:white; margin-bottom:12px; }
+.chat-redirect-content p { color:rgba(255,255,255,0.75); font-size:14px; line-height:1.6; margin-bottom:28px; }
+.chat-steps { text-align:left; margin-bottom:28px; }
+.chat-step { display:flex; align-items:flex-start; gap:12px; margin-bottom:12px; }
+.chat-step-num { width:26px; height:26px; border-radius:50%; background:rgba(255,255,255,0.2); color:white; font-size:13px; font-weight:800; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+.chat-step-text { color:rgba(255,255,255,0.85); font-size:14px; font-weight:600; line-height:1.4; padding-top:2px; }
+.btn-back-confirm { width:100%; padding:15px; border-radius:var(--radius-lg); background:rgba(255,255,255,0.15); color:white; font-size:15px; font-weight:700; cursor:pointer; transition:var(--transition); backdrop-filter:blur(10px); border:2px solid rgba(255,255,255,0.25); }
+.btn-back-confirm:hover { background:rgba(255,255,255,0.25); }
+
+/* ============================================================
+   CONFIRMATION
+============================================================ */
+#screen-confirmation { align-items:center; justify-content:center; padding:32px 24px; background:linear-gradient(160deg,#0A1628 0%,var(--secondary) 100%); }
+.confirm-content { text-align:center; max-width:340px; animation:bounceIn 0.6s ease; }
+.confirm-icon { font-size:80px; margin-bottom:20px; animation:blobFloat 4s ease-in-out infinite; }
+.confirm-content h2 { font-family:var(--font-heading); font-size:24px; font-weight:700; color:white; margin-bottom:10px; }
+.confirm-content p { color:rgba(255,255,255,0.65); font-size:14px; line-height:1.6; margin-bottom:24px; }
+.btn-confirm-done { width:100%; padding:16px; border-radius:var(--radius-lg); background:var(--success); color:white; font-size:15px; font-weight:800; cursor:pointer; transition:var(--transition); box-shadow:0 8px 24px rgba(6,214,160,0.4); display:flex; align-items:center; justify-content:center; gap:10px; }
+.btn-confirm-done:hover { transform:translateY(-2px); }
+.ripple-wrap { position:relative; width:100px; height:100px; margin:0 auto 20px; display:flex; align-items:center; justify-content:center; }
+.ripple-ring { position:absolute; width:100%; height:100%; border-radius:50%; border:2px solid var(--success); opacity:0; animation:pingRipple 2s ease-in-out infinite; }
+.ripple-ring:nth-child(2) { animation-delay:0.5s; }
+.ripple-ring:nth-child(3) { animation-delay:1s; }
+.ripple-center { width:60px; height:60px; background:var(--success); border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:28px; }
+
+/* ============================================================
+   PROFILE SCREEN
+============================================================ */
+#screen-profile { background:var(--bg); }
+.profile-header { background:linear-gradient(135deg,var(--secondary) 0%,#0A1628 100%); padding:28px 20px 70px; text-align:center; position:relative; overflow:hidden; }
+.profile-avatar { width:84px; height:84px; border-radius:50%; background:var(--primary); border:4px solid white; margin:0 auto 12px; display:flex; align-items:center; justify-content:center; font-size:40px; box-shadow:0 8px 24px rgba(0,0,0,0.2); }
+.profile-name { font-size:22px; font-weight:800; color:white; }
+.profile-class { color:rgba(255,255,255,0.6); font-size:14px; margin-top:4px; }
+.profile-stats { display:flex; background:var(--surface); border-radius:var(--radius-xl); margin:-40px 16px 0; box-shadow:var(--shadow-md); overflow:hidden; position:relative; z-index:2; }
+.profile-stat { flex:1; padding:16px 12px; text-align:center; border-right:1px solid var(--border); }
+.profile-stat:last-child { border-right:none; }
+.ps-val { font-family:var(--font-mono); font-size:20px; font-weight:800; color:var(--primary); }
+.ps-label { font-size:10px; font-weight:700; color:var(--text-muted); margin-top:3px; }
+.profile-section { padding:20px 16px 0; }
+.profile-section-title { font-size:13px; font-weight:700; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:10px; }
+.profile-item { display:flex; align-items:center; gap:14px; background:var(--surface); padding:14px 16px; border-radius:var(--radius-md); margin-bottom:8px; cursor:pointer; transition:var(--transition); }
+.profile-item:hover { box-shadow:var(--shadow-sm); }
+.profile-item .pi-icon { font-size:22px; }
+.profile-item .pi-info { flex:1; }
+.profile-item .pi-label { font-size:14px; font-weight:700; color:var(--text); }
+.profile-item .pi-sub { font-size:12px; color:var(--text-muted); margin-top:1px; }
+.profile-item .pi-arrow { color:var(--text-muted); font-size:16px; }
+
+/* ============================================================
+   DRIVER HOME
+============================================================ */
+#screen-driver-home { background:var(--bg); }
+.driver-header { background:linear-gradient(135deg,var(--secondary) 0%,#061428 100%); padding:20px 20px 60px; position:relative; overflow:hidden; }
+.driver-header-blob { position:absolute; border-radius:50%; opacity:0.1; }
+.driver-header-blob.db1 { width:180px; height:180px; background:var(--primary); top:-50px; right:-30px; }
+.driver-status-toggle { margin:-40px 16px 0; background:var(--surface); border-radius:var(--radius-xl); padding:16px 20px; box-shadow:var(--shadow-md); position:relative; z-index:2; display:flex; align-items:center; gap:14px; }
+.toggle-switch { width:54px; height:28px; border-radius:14px; background:var(--border); position:relative; cursor:pointer; transition:var(--transition); flex-shrink:0; }
+.toggle-switch.on { background:var(--success); }
+.toggle-knob { position:absolute; top:3px; left:3px; width:22px; height:22px; border-radius:11px; background:white; transition:var(--transition); box-shadow:0 2px 6px rgba(0,0,0,0.2); }
+.toggle-switch.on .toggle-knob { left:calc(100% - 25px); }
+.toggle-info { flex:1; }
+.toggle-info h4 { font-size:15px; font-weight:800; color:var(--text); }
+.toggle-info p { font-size:12px; color:var(--text-muted); margin-top:2px; }
+.status-dot { width:8px; height:8px; border-radius:50%; background:var(--border); transition:var(--transition); }
+.status-dot.online { background:var(--success); box-shadow:0 0 0 4px rgba(6,214,160,0.2); animation:pulse 2s ease-in-out infinite; }
+
+/* Admin fee card */
+.admin-fee-card { margin:14px 16px; background:linear-gradient(135deg,#FFF3E0,#FFE0CC); border-radius:var(--radius-lg); padding:18px; border:2px solid rgba(255,107,44,0.2); animation:fadeUp 0.5s ease 0.2s both; }
+.admin-fee-card h4 { font-size:13px; font-weight:700; color:var(--primary); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:12px; display:flex; align-items:center; gap:6px; }
+.fee-row { display:flex; justify-content:space-between; align-items:center; padding:6px 0; font-size:13px; }
+.fee-row .fee-label { color:var(--text-muted); font-weight:600; }
+.fee-row .fee-val { font-weight:700; color:var(--text); }
+.fee-row.total { border-top:2px dashed rgba(255,107,44,0.3); margin-top:6px; padding-top:10px; }
+.fee-row.total .fee-label { color:var(--text); font-weight:800; font-size:14px; }
+.fee-row.total .fee-val { font-family:var(--font-mono); font-size:18px; font-weight:800; color:var(--danger); }
+
+/* Alarm pembayaran admin fee */
+.alarm-card {
+  margin:0 16px 14px; background:white; border-radius:var(--radius-lg);
+  padding:16px; border-left:4px solid var(--danger);
+  box-shadow:var(--shadow-sm); animation:fadeUp 0.5s ease 0.3s both;
+}
+.alarm-card.active { animation:alarmPulse 2s infinite; }
+.alarm-header { display:flex; align-items:center; gap:8px; margin-bottom:10px; }
+.alarm-header h4 { font-size:13px; font-weight:800; color:var(--danger); flex:1; }
+.alarm-toggle-wrap { display:flex; gap:6px; }
+.alarm-toggle { font-size:10px; font-weight:700; padding:4px 10px; border-radius:100px; cursor:pointer; border:2px solid; transition:var(--transition); }
+.alarm-toggle.weekly { border-color:var(--primary); color:var(--primary); }
+.alarm-toggle.weekly.selected { background:var(--primary); color:white; }
+.alarm-toggle.monthly { border-color:var(--secondary); color:var(--secondary); }
+.alarm-toggle.monthly.selected { background:var(--secondary); color:white; }
+.alarm-next { font-size:12px; color:var(--text-muted); font-weight:600; }
+.alarm-next strong { color:var(--danger); }
+.alarm-cta { margin-top:10px; padding:8px 14px; background:var(--danger); color:white; border-radius:var(--radius-sm); font-size:12px; font-weight:800; cursor:pointer; transition:var(--transition); display:inline-flex; align-items:center; gap:6px; }
+.alarm-cta:hover { opacity:0.9; }
+
+.driver-trips-section { padding:8px 16px 0; animation:fadeUp 0.5s ease 0.35s both; }
+.driver-trip-card { background:var(--surface); border-radius:var(--radius-md); padding:14px 16px; margin-bottom:10px; box-shadow:var(--shadow-sm); display:flex; align-items:flex-start; gap:12px; }
+.dtc-icon { font-size:22px; flex-shrink:0; margin-top:2px; }
+.dtc-info { flex:1; }
+.dtc-passenger { font-size:14px; font-weight:800; color:var(--text); }
+.dtc-route { font-size:12px; color:var(--text-muted); margin-top:2px; }
+.dtc-right { text-align:right; flex-shrink:0; }
+.dtc-amount { font-family:var(--font-mono); font-size:14px; font-weight:800; color:var(--primary); }
+.dtc-fee { font-size:10px; color:var(--danger); font-weight:700; margin-top:2px; }
+
+/* ============================================================
+   HISTORY SCREEN
+============================================================ */
+#screen-history { background:var(--bg); }
+.history-header { background:var(--surface); padding:16px 20px; border-bottom:1px solid var(--border); flex-shrink:0; }
+.history-header h2 { font-size:18px; font-weight:800; }
+.history-list { padding:16px; }
+.history-item { background:var(--surface); border-radius:var(--radius-lg); padding:14px 16px; margin-bottom:10px; box-shadow:var(--shadow-sm); animation:fadeUp 0.4s ease both; }
+.history-item-top { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:10px; }
+.hi-date { font-size:11px; color:var(--text-muted); font-weight:700; margin-bottom:2px; }
+.hi-driver { font-size:14px; font-weight:800; color:var(--text); }
+.hi-cost { font-family:var(--font-mono); font-size:15px; font-weight:800; color:var(--primary); }
+.hi-status { display:inline-flex; align-items:center; gap:4px; font-size:10px; font-weight:700; padding:3px 8px; border-radius:6px; margin-top:4px; }
+.hi-status.completed { background:rgba(6,214,160,0.1); color:var(--success); }
+.hi-status.pending,.hi-status.searching { background:rgba(255,209,102,0.2); color:#B8860B; }
+.history-route { display:flex; gap:10px; align-items:center; font-size:12px; color:var(--text-muted); font-weight:600; }
+.hr-dot { width:8px; height:8px; border-radius:50%; background:var(--primary); flex-shrink:0; }
+
+/* ============================================================
+   TOAST & LOADING
+============================================================ */
+.toast { position:fixed; bottom:calc(var(--nav-height) + 16px); left:50%; transform:translateX(-50%) translateY(20px); background:var(--text); color:white; padding:12px 20px; border-radius:var(--radius-lg); font-size:14px; font-weight:700; z-index:9999; opacity:0; transition:all 0.3s ease; white-space:nowrap; max-width:calc(100% - 32px); display:flex; align-items:center; gap:8px; box-shadow:var(--shadow-lg); }
+.toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+.toast.success { background:var(--success); }
+.toast.error { background:var(--danger); }
+.toast.warning { background:var(--accent); color:var(--text); }
+#loading-overlay { position:fixed; inset:0; background:rgba(10,22,40,0.6); backdrop-filter:blur(4px); z-index:9998; display:none; align-items:center; justify-content:center; flex-direction:column; gap:16px; }
+#loading-overlay.show { display:flex; }
+.loading-spinner { width:48px; height:48px; border:4px solid rgba(255,255,255,0.2); border-top-color:var(--primary); border-radius:50%; animation:spin 0.8s linear infinite; }
+.loading-text { color:white; font-size:14px; font-weight:700; }
+
+/* ============================================================
+   RESPONSIVE
+============================================================ */
+@media (min-width:768px) {
+  #bottom-nav { display:none; }
+  #sidebar { display:flex; }
+  .screen.has-nav { padding-bottom:0; }
+  #peta-booking { height:340px; }
+  .quick-actions { grid-template-columns:repeat(6,1fr); }
+  .home-card { margin-top:-44px; }
+  .drivers-grid { display:grid; grid-template-columns:repeat(2,1fr); }
+  .toast { bottom:24px; }
+  :root { --ads-height: 90px; }
+}
+@media (min-width:1024px) {
+  #sidebar { width:260px; }
+  .drivers-grid { grid-template-columns:repeat(3,1fr); }
+  #peta-booking { height:400px; }
+  .booking-body { max-width:720px; margin:0 auto; }
+  .home-card,.home-section,.promo-banner { margin-left:24px; margin-right:24px; }
+  :root { --ads-height: 100px; }
+}
+
+/* ============================================================
+   UTILITIES
+============================================================ */
+.hidden { display:none !important; }
+.mt-8 { margin-top:8px; }
+.mt-12 { margin-top:12px; }
+.mt-16 { margin-top:16px; }
+.text-center { text-align:center; }
+.fw-800 { font-weight:800; }
+.color-primary { color:var(--primary); }
+.color-muted { color:var(--text-muted); }
+</style>
+</head>
+<body>
+
+<div id="app">
+  <!-- SIDEBAR (desktop) -->
+  <nav id="sidebar">
+    <div id="sidebar-logo">
+      <div class="logo-icon">🛵</div>
+      <div class="logo-text">
+        <h3>Gonceng</h3>
+        <span>v10 · SMAN 1 Widodaren</span>
+      </div>
+    </div>
+    <div id="sidebar-user">
+      <div class="su-avatar" id="sb-avatar">👤</div>
+      <div class="su-info">
+        <div class="su-name" id="sb-name">Pengguna</div>
+        <div class="su-class" id="sb-class">—</div>
+      </div>
+    </div>
+    <nav id="sidebar-nav">
+      <div class="sidebar-nav-item active" data-target="screen-home" onclick="sidebarNav('screen-home',this)"><span class="nav-icon">🏠</span> Beranda</div>
+      <div class="sidebar-nav-item" data-target="screen-booking" onclick="sidebarNav('screen-booking',this)"><span class="nav-icon">🗺️</span> Pesan Ride</div>
+      <div class="sidebar-nav-item" data-target="screen-history" onclick="sidebarNav('screen-history',this)"><span class="nav-icon">📋</span> Riwayat</div>
+      <div class="sidebar-nav-item" data-target="screen-profile" onclick="sidebarNav('screen-profile',this)"><span class="nav-icon">👤</span> Profil</div>
+    </nav>
+    <div id="sidebar-bottom">
+      <div class="sidebar-mode-badge" onclick="switchMode()">
+        <span id="sidebar-mode-icon">🧑‍🎓</span>
+        <span id="sidebar-mode-label">Mode Siswa</span>
+        <span style="margin-left:auto;font-size:14px;">⇄</span>
+      </div>
+    </div>
+  </nav>
+
+  <!-- MAIN CONTENT -->
+  <div id="main-content">
+
+    <!-- ==================== SPLASH ==================== -->
+    <div class="screen active" id="screen-splash">
+      <div class="splash-blob b1"></div>
+      <div class="splash-blob b2"></div>
+      <div class="splash-blob b3"></div>
+      <div class="splash-content">
+        <div class="splash-logo-wrap">🛵</div>
+        <div class="splash-title">Gon<span>ceng</span></div>
+        <div class="splash-tagline">Ride Sharing Khusus Pelajar Terverifikasi</div>
+        <div class="splash-version">v10 · SMAN 1 Widodaren · Ngawi</div>
+        <div class="splash-spinner"></div>
+      </div>
+    </div>
+
+    <!-- ==================== ONBOARDING ==================== -->
+    <div class="screen" id="screen-onboard" style="background:linear-gradient(160deg,#1E3A5F 0%,#0A1628 60%,#12243A 100%);align-items:center;justify-content:center;padding:32px 24px;">
+      <div class="onboard-slides">
+        <div id="onboard-content">
+          <div class="onboard-emoji" id="ob-emoji">🔒</div>
+          <h2 class="onboard-title" id="ob-title">Aman & <em>Terverifikasi</em></h2>
+          <p class="onboard-desc" id="ob-desc">Hanya siswa dari sekolah yang sama yang bisa bergabung. Semua pengguna terverifikasi dan aman.</p>
+        </div>
+        <div class="onboard-dots">
+          <div class="onboard-dot active" id="dot-0"></div>
+          <div class="onboard-dot" id="dot-1"></div>
+          <div class="onboard-dot" id="dot-2"></div>
+        </div>
+        <button class="btn-onboard-next" onclick="nextOnboard()">Selanjutnya →</button>
+        <button class="btn-onboard-skip" onclick="goTo('screen-auth')">Lewati</button>
+      </div>
+    </div>
+
+    <!-- ==================== AUTH v10 ==================== -->
+    <div class="screen" id="screen-auth" style="background:linear-gradient(160deg,#1E3A5F 0%,#0A1628 50%,#12243A 100%);align-items:center;justify-content:center;padding:24px;overflow-y:auto;">
+      <div class="auth-card">
+        <div class="auth-header">
+          <div class="auth-logo">🛵</div>
+          <h2>Gonceng v10</h2>
+          <p>Ride Sharing Khusus Pelajar</p>
+          <div class="auth-school-badge">🏫 SMAN 1 Widodaren · Ngawi</div>
+        </div>
+        <div class="auth-tabs">
+          <button class="auth-tab active" id="tab-login" onclick="switchAuthTab('login')">Masuk</button>
+          <button class="auth-tab" id="tab-register" onclick="switchAuthTab('register')">Daftar</button>
+        </div>
+
+        <!-- ── LOGIN PANEL ── -->
+        <div id="panel-login">
+          <!-- Google Login -->
+          <button class="btn-google" onclick="loginWithGoogle()" style="margin-bottom:10px;">
+            <svg viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+            Masuk dengan Google
+          </button>
+
+          <div class="auth-divider"><span>atau</span></div>
+
+          <div class="form-group">
+            <label class="form-label">📧 Email / No. HP / NISN / Nama</label>
+            <input class="form-input" type="text" id="login-identifier" placeholder="email@example.com atau nama lengkap" autocomplete="username">
+          </div>
+          <div class="form-group">
+            <label class="form-label">🔒 Password</label>
+            <div class="form-input-eye">
+              <input class="form-input" type="password" id="login-password" placeholder="Password kamu" autocomplete="current-password" onkeypress="if(event.key==='Enter')doLogin()">
+              <button class="eye-btn" onclick="toggleEye('login-password',this)" type="button">👁️</button>
+            </div>
+          </div>
+          <div style="text-align:right;margin-bottom:14px;">
+            <span style="font-size:12px;color:var(--primary);cursor:pointer;font-weight:700;" onclick="showToast('📩 Hubungi admin sekolah untuk reset password','warning')">Lupa password?</span>
+          </div>
+          <button class="btn-primary" onclick="doLogin()" style="margin-bottom:10px;">Masuk →</button>
+          <div class="auth-link">Belum punya akun? <span onclick="switchAuthTab('register')">Daftar sekarang</span></div>
+        </div>
+
+        <!-- ── REGISTER PANEL ── -->
+        <div id="panel-register" class="hidden">
+          <!-- Google Register -->
+          <button class="btn-google" onclick="loginWithGoogle()" style="margin-bottom:10px;">
+            <svg viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+            Daftar dengan Google
+          </button>
+          <div class="auth-divider"><span>atau isi form lengkap</span></div>
+
+          <div class="form-group">
+            <label class="form-label">👤 Nama Lengkap *</label>
+            <input class="form-input" type="text" id="reg-name" placeholder="Nama lengkap sesuai rapor">
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">🪪 NIS / NISN</label>
+              <input class="form-input" type="text" id="reg-nis" placeholder="NIS atau NISN">
+            </div>
+            <div class="form-group">
+              <label class="form-label">⚧ Gender *</label>
+              <select class="form-select" id="reg-gender">
+                <option value="L">Laki-laki</option>
+                <option value="P">Perempuan</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">📧 Email *</label>
+            <input class="form-input" type="email" id="reg-email" placeholder="email@example.com" autocomplete="email">
+          </div>
+          <div class="form-group">
+            <label class="form-label">🔒 Password *</label>
+            <div class="form-input-eye">
+              <input class="form-input" type="password" id="reg-password" placeholder="Minimal 6 karakter" autocomplete="new-password">
+              <button class="eye-btn" onclick="toggleEye('reg-password',this)" type="button">👁️</button>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">📱 Nomor HP (opsional)</label>
+            <input class="form-input" type="tel" id="reg-wa" placeholder="081xxxxxxxxx">
+          </div>
+          <div class="form-group">
+            <label class="form-label">🏛️ Sekolah *</label>
+            <select class="form-select" id="reg-school">
+              <option value="">Pilih Sekolah</option>
+              <option value="SCH-001" selected>SMAN 1 Widodaren — Ngawi</option>
+              <option value="SCH-002">SMAN 1 Ngawi — Ngawi</option>
+              <option value="SCH-003">SMKN 1 Ngawi — Ngawi</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">🎭 Peran *</label>
+            <select class="form-select" id="reg-role">
+              <option value="siswa">Siswa (Penumpang)</option>
+              <option value="driver">Driver (Pengemudi)</option>
+            </select>
+          </div>
+          <button class="btn-primary" onclick="submitRegister()" style="margin-bottom:10px;">Daftar Sekarang 🚀</button>
+          <div class="auth-link">Sudah punya akun? <span onclick="switchAuthTab('login')">Masuk</span></div>
+        </div>
+
+        <!-- ── GOOGLE COMPLETE PANEL ── -->
+        <div id="panel-google-complete" class="hidden">
+          <div class="google-user-preview">
+            <div class="gu-avatar" id="google-avatar">G</div>
+            <div class="gu-info">
+              <div class="gu-name" id="google-name-preview">—</div>
+              <div class="gu-email" id="google-email-preview">—</div>
+            </div>
+          </div>
+          <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px;">Lengkapi data berikut untuk menyelesaikan pendaftaran:</p>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">🪪 NIS / NISN</label>
+              <input class="form-input" type="text" id="gc-nis" placeholder="NIS/NISN">
+            </div>
+            <div class="form-group">
+              <label class="form-label">⚧ Gender *</label>
+              <select class="form-select" id="gc-gender">
+                <option value="L">Laki-laki</option>
+                <option value="P">Perempuan</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">📱 Nomor HP</label>
+            <input class="form-input" type="tel" id="gc-wa" placeholder="081xxxxxxxxx">
+          </div>
+          <div class="form-group">
+            <label class="form-label">🏛️ Sekolah *</label>
+            <select class="form-select" id="gc-school">
+              <option value="SCH-001" selected>SMAN 1 Widodaren — Ngawi</option>
+              <option value="SCH-002">SMAN 1 Ngawi — Ngawi</option>
+              <option value="SCH-003">SMKN 1 Ngawi — Ngawi</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">🎭 Peran *</label>
+            <select class="form-select" id="gc-role">
+              <option value="siswa">Siswa (Penumpang)</option>
+              <option value="driver">Driver (Pengemudi)</option>
+            </select>
+          </div>
+          <button class="btn-primary" onclick="completeGoogleRegister()">Selesaikan Pendaftaran ✓</button>
+          <button class="btn-secondary" onclick="switchAuthTab('login')" style="margin-top:8px;">← Kembali</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== HOME (SISWA) ==================== -->
+    <div class="screen has-nav" id="screen-home">
+      <div style="flex:1;overflow-y:auto;">
+        <div class="home-header">
+          <div class="home-header-blob hb1"></div>
+          <div class="home-header-blob hb2"></div>
+          <div class="home-top-bar">
+            <div class="home-greeting">
+              <div class="hi-text">Hai, 👋</div>
+              <div class="hi-name" id="home-username">Nama Siswa</div>
+              <div class="hi-school" id="home-school">SMAN 1 Widodaren · Ngawi</div>
+            </div>
+            <div class="notif-btn" onclick="showToast('📬 Tidak ada notifikasi baru')">
+              🔔<div class="notif-badge"></div>
+            </div>
+          </div>
+        </div>
+        <div class="home-card">
+          <div class="home-card-title">⚡ Menu Cepat</div>
+          <div class="quick-actions">
+            <div class="qa-btn" onclick="goTo('screen-booking')"><div class="qa-icon">🗺️</div><div class="qa-label">Pesan Ride</div></div>
+            <div class="qa-btn" onclick="goTo('screen-history')"><div class="qa-icon">📋</div><div class="qa-label">Riwayat</div></div>
+            <div class="qa-btn" onclick="goTo('screen-driver-list')"><div class="qa-icon">🔍</div><div class="qa-label">Cari Driver</div></div>
+            <div class="qa-btn" onclick="goTo('screen-profile')"><div class="qa-icon">👤</div><div class="qa-label">Profil</div></div>
+            <div class="qa-btn" onclick="switchMode()"><div class="qa-icon">🛵</div><div class="qa-label">Jadi Driver</div></div>
+            <div class="qa-btn" onclick="showToast('🔔 Notifikasi aktif!')"><div class="qa-icon">🔔</div><div class="qa-label">Notifikasi</div></div>
+          </div>
+        </div>
+
+        <!-- ADS BANNER PENUMPANG -->
+        <div class="ads-banner-container" id="ads-home" style="margin:14px 16px;border-radius:12px;border:1px solid var(--border);">
+          <div class="ads-banner-inner">
+            <!-- Ganti div berikut dengan tag script AdSense/AdMob saat live -->
+            <div class="ads-placeholder" id="ads-home-placeholder">
+              📢 Ruang Iklan · AdSense / AdMob · 20% Layar
+            </div>
+            <!-- Contoh slot AdSense (aktifkan & ganti data-ad-* saat live):
+            <ins class="adsbygoogle ads-adsense-slot"
+                 style="display:block;width:100%;height:100%;"
+                 data-ad-client="ca-pub-XXXXXXXXXXXXXXXX"
+                 data-ad-slot="XXXXXXXXXX"
+                 data-ad-format="auto"
+                 data-full-width-responsive="true"></ins>
+            -->
+          </div>
+          <button class="ads-close-btn" onclick="document.getElementById('ads-home').style.display='none'">✕</button>
+        </div>
+
+        <div class="promo-banner">
+          <div class="promo-text"><h4>Gratis 1 Trip! 🎉</h4><p>Ajak teman daftar dan dapatkan trip gratis pertamamu</p></div>
+          <div class="promo-emoji">🎁</div>
+        </div>
+        <div class="home-section">
+          <div class="home-section-header">
+            <div class="home-section-title">📍 Rute Populer</div>
+            <div class="home-section-link" onclick="goTo('screen-booking')">Lihat semua</div>
+          </div>
+          <div class="trip-card" onclick="goTo('screen-booking')">
+            <div class="trip-icon to-school">🏫</div>
+            <div class="trip-info"><div class="trip-route">Rumah → SMAN 1 Widodaren</div><div class="trip-meta">⏱ ~15 menit · ~4.5 km</div></div>
+            <div class="trip-cost">Rp 5.000</div>
+          </div>
+          <div class="trip-card" onclick="goTo('screen-booking')">
+            <div class="trip-icon to-home">🏠</div>
+            <div class="trip-info"><div class="trip-route">SMAN 1 Widodaren → Rumah</div><div class="trip-meta">⏱ ~15 menit · ~4.5 km</div></div>
+            <div class="trip-cost">Rp 5.000</div>
+          </div>
+        </div>
+        <div class="home-section" style="padding-bottom:20px;">
+          <div class="home-section-header">
+            <div class="home-section-title">📜 Trip Terakhir</div>
+            <div class="home-section-link" onclick="goTo('screen-history')">Semua</div>
+          </div>
+          <div id="home-last-trip">
+            <div class="trip-card"><div class="trip-icon to-school">🛵</div><div class="trip-info"><div class="trip-route">Memuat riwayat...</div><div class="trip-meta">—</div></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== BOOKING ==================== -->
+    <div class="screen has-nav" id="screen-booking">
+      <div class="booking-header"><div class="back-btn" onclick="goBack()">←</div><h2>🗺️ Pesan Ride</h2></div>
+      <div class="step-indicator">
+        <div class="step-item active" id="step-1"><div class="step-circle">1</div><div class="step-label">Lokasi</div></div>
+        <div class="step-line" id="step-line-1"></div>
+        <div class="step-item" id="step-2"><div class="step-circle">2</div><div class="step-label">Peta</div></div>
+        <div class="step-line" id="step-line-2"></div>
+        <div class="step-item" id="step-3"><div class="step-circle">3</div><div class="step-label">Jarak</div></div>
+        <div class="step-line" id="step-line-3"></div>
+        <div class="step-item" id="step-4"><div class="step-circle">4</div><div class="step-label">Biaya</div></div>
+      </div>
+      <div class="booking-body" id="booking-body">
+        <div class="location-card">
+          <div class="loc-header"><span style="font-size:20px;">📍</span><h3>Titik Penjemputan</h3><div class="loc-badge">Otomatis</div></div>
+          <div class="loc-point">
+            <div class="loc-dot-wrap"><div class="loc-dot origin"></div><div class="loc-line-seg"></div></div>
+            <div class="loc-info"><div class="loc-label">Lokasi Sekarang</div><div class="loc-addr" id="pickup-addr">Mendeteksi lokasi...</div><div class="loc-coords" id="pickup-coords">—</div></div>
+          </div>
+          <div class="loc-point" style="border-bottom:none;">
+            <div class="loc-dot-wrap"><div class="loc-dot dest"></div></div>
+            <div class="loc-info"><div class="loc-label">Tujuan</div><div class="loc-addr" id="dest-addr">SMAN 1 Widodaren</div></div>
+          </div>
+        </div>
+        <div class="location-card">
+          <div class="loc-header"><span style="font-size:20px;">🎯</span><h3>Pilih Tujuan</h3></div>
+          <div class="dest-options">
+            <div class="dest-opt selected" id="dest-school" onclick="selectDest('school',this)"><div class="do-icon">🏫</div><div class="do-label">Sekolah</div></div>
+            <div class="dest-opt" id="dest-home" onclick="selectDest('home',this)"><div class="do-icon">🏠</div><div class="do-label">Rumah</div></div>
+            <div class="dest-opt" id="dest-custom" onclick="selectDest('custom',this)"><div class="do-icon">📌</div><div class="do-label">Custom</div></div>
+          </div>
+          <div id="custom-dest-input" class="hidden" style="margin-top:12px;">
+            <input class="form-input" type="text" id="custom-dest-text" placeholder="Masukkan tujuan custom...">
+          </div>
+        </div>
+        <div class="location-card">
+          <div class="loc-header"><span style="font-size:20px;">🗺️</span><h3>Peta Rute</h3></div>
+          <div id="peta-booking"></div>
+          <button class="btn-primary" onclick="getLocation()" style="margin-top:12px;width:100%;">📍 Deteksi Lokasi Saya</button>
+        </div>
+        <div class="location-card" id="fare-card" style="display:none;">
+          <div class="loc-header"><span style="font-size:20px;">💰</span><h3>Estimasi Biaya</h3></div>
+          <div class="fare-estimate">
+            <div class="fare-row"><span class="fr-label">Jarak</span><span class="fr-val" id="fare-dist">— km</span></div>
+            <div class="fare-row"><span class="fr-label">Tarif Dasar</span><span class="fr-val" id="fare-base">Rp 1.000</span></div>
+            <div class="fare-row"><span class="fr-label">Per km</span><span class="fr-val" id="fare-per-km">Rp —</span></div>
+            <div class="fare-row total"><span class="fr-label">Total</span><span class="fr-val" id="fare-total">Rp —</span></div>
+          </div>
+          <button class="btn-primary" onclick="goToOrderSummary()" style="margin-top:8px;">Lanjut ke Ringkasan →</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== ORDER SUMMARY ==================== -->
+    <div class="screen has-nav" id="screen-order-summary">
+      <div class="booking-header"><div class="back-btn" onclick="goBack()">←</div><h2>📋 Ringkasan Order</h2></div>
+      <div style="flex:1;overflow-y:auto;padding-bottom:20px;">
+        <div class="summary-card">
+          <h3>🧾 Detail Pemesanan</h3>
+          <div class="summary-row"><span class="sr-key">Nama</span><span class="sr-val" id="sum-name">—</span></div>
+          <div class="summary-row"><span class="sr-key">NIS</span><span class="sr-val" id="sum-class">—</span></div>
+          <div class="summary-row"><span class="sr-key">Jemput</span><span class="sr-val" id="sum-pickup">—</span></div>
+          <div class="summary-row"><span class="sr-key">Tujuan</span><span class="sr-val" id="sum-dest">—</span></div>
+          <div class="summary-row"><span class="sr-key">Link Maps</span><span class="sr-val" id="sum-maps" style="color:var(--primary);cursor:pointer;" onclick="openMaps()">Buka Maps 📍</span></div>
+          <div class="summary-row"><span class="sr-key">Jarak</span><span class="sr-val" id="sum-dist">—</span></div>
+          <div class="summary-row"><span class="sr-key">Total</span><span class="sr-val price" id="sum-total">—</span></div>
+        </div>
+        <div class="copy-btn-wrap">
+          <button class="btn-copy" id="copy-btn" onclick="copyTransaction()"><span>📋</span><span id="copy-btn-text">Copy Teks Transaksi</span></button>
+        </div>
+        <div style="margin:0 16px 12px;">
+          <button class="btn-find-driver" onclick="goTo('screen-driver-list')">🔍 Cari Driver Sekarang</button>
+        </div>
+        <div style="margin:0 16px;background:rgba(255,209,102,0.15);border-radius:var(--radius-md);padding:14px;border:2px solid rgba(255,209,102,0.4);">
+          <p style="font-size:12px;color:var(--text-muted);line-height:1.6;">💡 <strong>Cara Pesan:</strong> Salin teks → Cari driver → Buka WA driver → Paste teks → Setujui → Selesai!</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== DRIVER LIST ==================== -->
+    <div class="screen has-nav" id="screen-driver-list">
+      <div class="driver-list-header">
+        <div style="display:flex;align-items:center;gap:12px;"><div class="back-btn" onclick="goBack()">←</div><h2 style="font-size:18px;font-weight:800;">🔍 Pilih Driver</h2></div>
+        <div class="driver-filter-info" id="driver-filter-chips">
+          <div class="filter-chip active">🏫 SMAN 1 Widodaren</div>
+          <div class="filter-chip active">📍 Dalam jangkauan</div>
+        </div>
+      </div>
+      <div style="flex:1;overflow-y:auto;">
+        <div class="drivers-grid" id="drivers-grid"></div>
+      </div>
+    </div>
+
+    <!-- ==================== CHAT REDIRECT ==================== -->
+    <div class="screen" id="screen-chat-redirect">
+      <div class="chat-redirect-content">
+        <div class="wa-big-icon">💬</div>
+        <h2>Hubungi Driver via WhatsApp</h2>
+        <p>Kamu akan diarahkan ke WhatsApp. Paste teks transaksi ke chat driver.</p>
+        <div class="chat-steps">
+          <div class="chat-step"><div class="chat-step-num">1</div><div class="chat-step-text">WhatsApp driver akan terbuka otomatis</div></div>
+          <div class="chat-step"><div class="chat-step-num">2</div><div class="chat-step-text">Paste teks transaksi yang sudah disalin</div></div>
+          <div class="chat-step"><div class="chat-step-num">3</div><div class="chat-step-text">Tunggu konfirmasi dari driver</div></div>
+          <div class="chat-step"><div class="chat-step-num">4</div><div class="chat-step-text">Kembali ke Gonceng setelah selesai diantar</div></div>
+        </div>
+        <button class="btn-back-confirm" onclick="goTo('screen-confirmation')">✅ Selesai Diantar? Konfirmasi di sini</button>
+      </div>
+    </div>
+
+    <!-- ==================== CONFIRMATION ==================== -->
+    <div class="screen" id="screen-confirmation">
+      <div class="confirm-content">
+        <div class="ripple-wrap"><div class="ripple-ring"></div><div class="ripple-ring"></div><div class="ripple-ring"></div><div class="ripple-center">✅</div></div>
+        <h2>Konfirmasi Trip Selesai</h2>
+        <p>Tekan tombol di bawah untuk mengonfirmasi kamu sudah sampai tujuan.</p>
+        <button class="btn-confirm-done" onclick="confirmTripDone()"><span>✅</span> Konfirmasi Selesai</button>
+        <button class="btn-secondary" onclick="goBack()" style="margin-top:12px;border-radius:var(--radius-lg);">Belum Selesai</button>
+      </div>
+    </div>
+
+    <!-- ==================== HISTORY ==================== -->
+    <div class="screen has-nav" id="screen-history">
+      <div class="history-header"><h2>📋 Riwayat Trip</h2></div>
+      <div style="flex:1;overflow-y:auto;"><div class="history-list" id="history-list"></div></div>
+    </div>
+
+    <!-- ==================== PROFILE ==================== -->
+    <div class="screen has-nav" id="screen-profile">
+      <div style="flex:1;overflow-y:auto;padding-bottom:20px;">
+        <div class="profile-header">
+          <div class="profile-avatar" id="prof-avatar">👤</div>
+          <div class="profile-name" id="prof-name">Nama Pengguna</div>
+          <div class="profile-class" id="prof-class">SMAN 1 Widodaren</div>
+        </div>
+        <div class="profile-stats">
+          <div class="profile-stat"><div class="ps-val" id="prof-trips">0</div><div class="ps-label">Total Trip</div></div>
+          <div class="profile-stat"><div class="ps-val" id="prof-rating">—</div><div class="ps-label">Rating</div></div>
+          <div class="profile-stat"><div class="ps-val" id="prof-status">⏳</div><div class="ps-label">Status</div></div>
+        </div>
+        <div class="profile-section" style="margin-top:20px;">
+          <div class="profile-section-title">Informasi Akun</div>
+          <div class="profile-item"><div class="pi-icon">📧</div><div class="pi-info"><div class="pi-label">Email</div><div class="pi-sub" id="prof-email">—</div></div><div class="pi-arrow">›</div></div>
+          <div class="profile-item"><div class="pi-icon">📱</div><div class="pi-info"><div class="pi-label">Nomor HP</div><div class="pi-sub" id="prof-wa">—</div></div><div class="pi-arrow">›</div></div>
+          <div class="profile-item"><div class="pi-icon">🏫</div><div class="pi-info"><div class="pi-label">Sekolah</div><div class="pi-sub" id="prof-school">SMAN 1 Widodaren</div></div><div class="pi-arrow">›</div></div>
+          <div class="profile-item"><div class="pi-icon">📍</div><div class="pi-info"><div class="pi-label">Koordinat Rumah</div><div class="pi-sub" id="prof-coords">Belum diatur</div></div><div class="pi-arrow">›</div></div>
+        </div>
+        <div class="profile-section">
+          <div class="profile-section-title">Pengaturan</div>
+          <div class="profile-item" onclick="switchMode()"><div class="pi-icon">🛵</div><div class="pi-info"><div class="pi-label">Beralih ke Mode Driver</div><div class="pi-sub">Daftarkan diri sebagai pengemudi</div></div><div class="pi-arrow">›</div></div>
+          <div class="profile-item" onclick="logout()"><div class="pi-icon">🚪</div><div class="pi-info"><div class="pi-label" style="color:var(--danger);">Keluar</div><div class="pi-sub">Logout dari akun</div></div><div class="pi-arrow">›</div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== DRIVER HOME ==================== -->
+    <div class="screen has-nav" id="screen-driver-home">
+      <div style="flex:1;overflow-y:auto;padding-bottom:20px;">
+        <div class="driver-header">
+          <div class="driver-header-blob db1"></div>
+          <div class="home-top-bar">
+            <div class="home-greeting">
+              <div class="hi-text">Mode Driver 🛵</div>
+              <div class="hi-name" id="driver-name">Nama Driver</div>
+              <div class="hi-school" id="driver-school">SMAN 1 Widodaren</div>
+            </div>
+            <div class="notif-btn" onclick="switchMode()">🧑‍🎓</div>
+          </div>
+        </div>
+
+        <div class="driver-status-toggle">
+          <div class="toggle-switch" id="driver-toggle" onclick="toggleDriverStatus()"><div class="toggle-knob"></div></div>
+          <div class="toggle-info"><h4 id="toggle-label">Offline</h4><p id="toggle-sub">Tap untuk mulai menerima penumpang</p></div>
+          <div class="status-dot" id="status-dot"></div>
+        </div>
+
+        <!-- ALARM PEMBAYARAN ADMIN FEE -->
+        <div class="alarm-card" id="alarm-card">
+          <div class="alarm-header">
+            <span style="font-size:18px;">⏰</span>
+            <h4>Pengingat Setor Admin Fee</h4>
+            <div class="alarm-toggle-wrap">
+              <div class="alarm-toggle weekly selected" id="alarm-weekly" onclick="setAlarmMode('weekly')">Mingguan</div>
+              <div class="alarm-toggle monthly" id="alarm-monthly" onclick="setAlarmMode('monthly')">Bulanan</div>
+            </div>
+          </div>
+          <div class="alarm-next" id="alarm-next-text">Pengingat berikutnya: <strong id="alarm-next-date">—</strong></div>
+          <div id="alarm-due-warning" class="hidden" style="margin-top:8px;padding:8px;background:rgba(239,71,111,0.1);border-radius:8px;font-size:12px;color:var(--danger);font-weight:700;">
+            ⚠️ Fee admin sudah jatuh tempo! Segera setor ke admin sekolah.
+          </div>
+          <button class="alarm-cta" onclick="showToast('📲 Hubungi admin sekolah untuk konfirmasi setoran','warning')">
+            💳 Setor Sekarang
+          </button>
+        </div>
+
+        <div class="admin-fee-card">
+          <h4>🧾 Akumulasi Tagihan Administrasi</h4>
+          <div class="fee-row"><span class="fee-label">Trip bulan ini</span><span class="fee-val" id="fee-trips">0 trip</span></div>
+          <div class="fee-row"><span class="fee-label">Total penghasilan</span><span class="fee-val" id="fee-income">Rp 0</span></div>
+          <div class="fee-row"><span class="fee-label">Rate fee admin</span><span class="fee-val" id="fee-rate">5%</span></div>
+          <div class="fee-row total"><span class="fee-label">Total Fee Terakumulasi</span><span class="fee-val" id="fee-total-admin">Rp 0</span></div>
+          <div class="fee-row"><span class="fee-label" style="color:var(--success);font-weight:700;">✅ Sudah Disetor</span><span class="fee-val" style="color:var(--success);" id="fee-paid">Rp 0</span></div>
+          <div class="fee-row"><span class="fee-label" style="color:var(--danger);font-weight:700;">⚠️ Belum Disetor</span><span class="fee-val" style="color:var(--danger);" id="fee-unpaid">Rp 0</span></div>
+        </div>
+
+        <!-- ADS BANNER DRIVER -->
+        <div class="ads-banner-container" id="ads-driver" style="margin:0 16px 14px;border-radius:12px;border:1px solid var(--border);">
+          <div class="ads-banner-inner">
+            <div class="ads-placeholder" id="ads-driver-placeholder">
+              📢 Ruang Iklan Driver · AdSense / AdMob
+            </div>
+          </div>
+          <button class="ads-close-btn" onclick="document.getElementById('ads-driver').style.display='none'">✕</button>
+        </div>
+
+        <div class="driver-trips-section">
+          <div class="home-section-header" style="margin-bottom:12px;">
+            <div class="home-section-title">📜 Riwayat Trip Driver</div>
+          </div>
+          <div id="driver-trip-list"></div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- end main-content -->
+</div><!-- end app -->
+
+<!-- BOTTOM NAV -->
+<nav id="bottom-nav">
+  <div class="bnav-item active" id="bnav-home" onclick="bnavClick('screen-home','bnav-home')"><div class="bnav-icon">🏠</div><div class="bnav-label">Beranda</div></div>
+  <div class="bnav-item" id="bnav-booking" onclick="bnavClick('screen-booking','bnav-booking')"><div class="bnav-icon">🗺️</div><div class="bnav-label">Pesan</div></div>
+  <div class="bnav-item" id="bnav-history" onclick="bnavClick('screen-history','bnav-history')"><div class="bnav-icon">📋</div><div class="bnav-label">Riwayat</div></div>
+  <div class="bnav-item" id="bnav-profile" onclick="bnavClick('screen-profile','bnav-profile')"><div class="bnav-icon">👤</div><div class="bnav-label">Profil</div></div>
+</nav>
+
+<!-- LOADING -->
+<div id="loading-overlay"><div class="loading-spinner"></div><div class="loading-text" id="loading-text">Memuat...</div></div>
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<script>
+/* ================================================================
+   GONCENG v10 — Tersinkron dengan gonceng_db_v10.xlsx
+   Auth: Email/Password + Google OAuth (TANPA OTP WA)
+   Sekolah: SMAN 1 Widodaren, Ngawi
+   Koordinat: -7.379897553058829, 111.2126637940821
+================================================================ */
+
+// ── KONFIGURASI ──────────────────────────────────────────────
+// ▼ URL Google Apps Script (sudah dikonfigurasi) ▼
+const GAS_URL = 'https://script.google.com/macros/s/AKfycbwP3ULLISvsytf63UmaWYroe53WDgh3iGJmL46Kz4lpHUC58t-H0Sv7JVcSD2l-J-O4Ig/exec';
+
+// ── Koordinat SMAN 1 Widodaren (v10) ────────────────────────
+const SEKOLAH_LAT = -7.379897553058829;
+const SEKOLAH_LNG = 111.2126637940821;
+const SEKOLAH_NAMA = 'SMAN 1 Widodaren';
+
+// ── Tarif default (di-load dari GAS) ────────────────────────
+let TARIF = {
+  per_km: 250,
+  minimum: 1000,
+  cash_bulat: 500,
+  admin_fee_pct: 5,
+  deviasi_default_km: 1,
+  max_radius_match: 0.5,
+  alarm_admin_hari: 7,
 };
 
-// ── Header kolom sesuai gonceng_db_v10.xlsx ─────────────────
-const HEADERS = {
-  users: [
-    'user_id','nama_lengkap','no_wa','role','gender','sekolah_id',
-    'nis_nisn','status_verifikasi','max_deviasi_km','home_lat','home_lng',
-    'created_at','last_login','rating_avg','total_trip',
-    'email','password_hash','google_sub'   // BARU v10
-  ],
-  sekolah:  ['sekolah_id','nama_sekolah','npsn','alamat_lengkap','kecamatan','kab_kota','provinsi','latitude','longitude','admin_id','status'],
-  bookings: ['booking_id','penumpang_id','driver_id','sekolah_id','pickup_lat','pickup_lng','pickup_alamat','tujuan_nama','tujuan_lat','tujuan_lng','tujuan_tipe','gender_pref','jadwal','status','jarak_km','biaya_rp','metode_bayar','deviasi_km','created_at','completed_at','rating'],
-  payments: [
-    'payment_id','booking_id','user_id','metode','nominal_asli','nominal_bayar',
-    'selisih_cash','status','created_at','settled_at',
-    'admin_fee_rp','akumulasi_admin_driver','periode_admin','status_setor_admin','tgl_setor_admin'  // BARU v10
-  ],
-  tarif_config:     ['config_key','config_value','satuan','keterangan','updated_by','updated_at'],
-  deviasi_requests: ['deviasi_id','user_id','sekolah_id','km_sebelum','km_diajukan','alasan','durasi_hari','status','reviewed_by','review_note','created_at','updated_at'],
-  ratings:          ['rating_id','booking_id','dari_user_id','untuk_user_id','bintang','komentar','created_at'],
-  _sessions:        ['session_token','user_id','expires_at','created_at'],
+// ── APP STATE ────────────────────────────────────────────────
+let state = {
+  currentScreen: 'screen-splash',
+  screenHistory: [],
+  user: null,
+  sessionToken: null,
+  isDriverMode: false,
+  driverOnline: false,
+  pickup: { lat: null, lng: null, addr: 'Mendeteksi...' },
+  dest: { type: 'sekolah', label: SEKOLAH_NAMA, lat: SEKOLAH_LAT, lng: SEKOLAH_LNG },
+  fareCalc: { dist: 0, total: 0, metode: 'cash' },
+  selectedDriver: null,
+  activeBookingId: null,
+  transactionText: '',
+  onboardStep: 0,
+  driversCache: [],
+  historyCache: [],
+  driverTripsCache: [],
+  adminFeeCache: { total_fee:0, total_income:0, trip_count:0, paid:0, unpaid:0 },
+  alarmMode: 'weekly', // 'weekly' | 'monthly'
+  pendingGoogleData: null,
 };
 
-// ── Konstanta Sekolah v10 ───────────────────────────────────
-const SEKOLAH_UTAMA = {
-  id:   'SCH-001',
-  nama: 'SMAN 1 Widodaren',
-  lat:  -7.379897553058829,
-  lng:  111.2126637940821,
-};
+const onboardSlides = [
+  { emoji:'🔒', title:'Aman & <em>Terverifikasi</em>', desc:'Hanya siswa dari sekolah yang sama yang bisa bergabung. Semua pengguna terverifikasi dan aman.' },
+  { emoji:'🛵', title:'Gonceng <em>Sesama Teman</em>', desc:'Temukan driver dari sekolah dan gender yang sama, dalam radius dekat rumahmu.' },
+  { emoji:'💸', title:'Hemat & <em>Transparan</em>', desc:'Biaya terbuka, tidak ada markup. Bayar langsung ke driver, fee kecil ke sekolah.' },
+];
 
-// ============================================================
-//  ENTRYPOINT
-// ============================================================
-function doPost(e) { return handle(e); }
-function doGet(e)  { return handle(e); }
-
-function handle(e) {
+/* ================================================================
+   API CALL — Sinkron ke Google Apps Script → Google Sheets
+================================================================ */
+async function apiCall(action, data = {}) {
+  if (!GAS_URL || GAS_URL === '__DEMO__') {
+    console.warn('[DEMO MODE] apiCall:', action);
+    return { success: true, demo: true };
+  }
   try {
-    const body = e.postData?.contents ? JSON.parse(e.postData.contents) : e.parameter || {};
-    const result = route(body);
-    return out(result);
-  } catch(err) {
-    Logger.log('ERROR: ' + err.message + '\n' + err.stack);
-    return out({ success: false, error: err.message });
-  }
-}
+    const payload = { action, ...data };
+    if (state.sessionToken) payload._session = state.sessionToken;
 
-function out(obj) {
-  return ContentService
-    .createTextOutput(JSON.stringify(obj))
-    .setMimeType(ContentService.MimeType.JSON);
-}
+    // Gunakan GET + ?payload=JSON untuk menghindari CORS preflight
+    // GAS Web App tidak support OPTIONS preflight dari domain luar.
+    // Kirim via GET parameter — GAS tetap terima dan proses normal.
+    const encoded = encodeURIComponent(JSON.stringify(payload));
+    const url = GAS_URL + '?payload=' + encoded;
 
-function route(body) {
-  switch (body.action) {
-    // ── Auth v10 (Email/Password/Google — tanpa OTP) ────────
-    case 'register':          return actionRegister(body);
-    case 'loginPassword':     return actionLoginPassword(body);
-    case 'loginGoogle':       return actionLoginGoogle(body);
-    case 'validateSession':   return actionValidateSession(body);
-    case 'logout':            return actionLogout(body);
-    case 'updateLastLogin':   return actionUpdateLastLogin(body);
-    case 'getUser':           return actionGetUser(body);
-    case 'changePassword':    return actionChangePassword(body);
-
-    // ── Sekolah ─────────────────────────────────────────────
-    case 'getSekolahList':    return actionGetSekolahList();
-    case 'getSekolah':        return actionGetSekolah(body);
-
-    // ── Tarif ───────────────────────────────────────────────
-    case 'getTarifConfig':    return actionGetTarifConfig();
-
-    // ── Driver ──────────────────────────────────────────────
-    case 'getDrivers':        return actionGetDrivers(body);
-    case 'setDriverStatus':   return actionSetDriverStatus(body);
-
-    // ── Booking ─────────────────────────────────────────────
-    case 'createBooking':     return actionCreateBooking(body);
-    case 'confirmBooking':    return actionConfirmBooking(body);
-    case 'getHistory':        return actionGetHistory(body);
-    case 'getBooking':        return actionGetBooking(body);
-
-    // ── Payment & Administrasi ──────────────────────────────
-    case 'createPayment':          return actionCreatePayment(body);
-    case 'settlePayment':          return actionSettlePayment(body);
-    case 'getAdminFeeDriver':      return actionGetAdminFeeDriver(body);
-    case 'setorAdminFee':          return actionSetorAdminFee(body);
-    case 'getAkumulasiAdminAll':   return actionGetAkumulasiAdminAll(body);
-
-    // ── Rating ──────────────────────────────────────────────
-    case 'submitRating':      return actionSubmitRating(body);
-
-    // ── Deviasi ─────────────────────────────────────────────
-    case 'createDeviasiRequest': return actionCreateDeviasi(body);
-    case 'reviewDeviasi':        return actionReviewDeviasi(body);
-
-    // ── Admin ───────────────────────────────────────────────
-    case 'refreshRingkasan':  return actionRefreshRingkasan();
-    case 'ping':              return { success: true, ts: new Date().toISOString(), version: 'v10' };
-
-    default: return { success: false, error: 'Action tidak dikenal: ' + body.action };
-  }
-}
-
-// ============================================================
-//  AUTH v10 — Email + Password + Google (TANPA OTP WA)
-// ============================================================
-
-/**
- * Registrasi pengguna baru
- * Mendukung: email+password ATAU google_sub
- * Kolom tambahan v10: email, password_hash, google_sub
- */
-function actionRegister(body) {
-  const {
-    nama_lengkap, no_wa, role, gender, sekolah_id, nis_nisn,
-    email, password, google_sub, google_email,
-    status_verifikasi, max_deviasi_km, home_lat, home_lng
-  } = body;
-
-  if (!nama_lengkap || !sekolah_id)
-    return { success: false, error: 'nama_lengkap dan sekolah_id wajib diisi' };
-
-  // Validasi minimal: harus punya email atau google_sub
-  const emailFinal = email || google_email || '';
-  if (!emailFinal && !google_sub)
-    return { success: false, error: 'Email atau akun Google wajib diisi' };
-
-  const sheet = getSheet(SHEET.USERS);
-
-  // Cek duplikat email
-  if (emailFinal && findRow(sheet, 'email', emailFinal.toLowerCase()))
-    return { success: false, error: 'Email sudah terdaftar. Silakan login.' };
-
-  // Cek duplikat google_sub
-  if (google_sub && findRow(sheet, 'google_sub', google_sub))
-    return { success: false, error: 'Akun Google sudah terdaftar. Silakan login.' };
-
-  // Cek sekolah valid
-  const sekolahRow = findRow(getSheet(SHEET.SEKOLAH), 'sekolah_id', sekolah_id);
-  if (!sekolahRow) return { success: false, error: 'Sekolah tidak ditemukan' };
-
-  const prefix  = role === 'driver' ? 'DRV' : role === 'admin' ? 'ADM' : 'USR';
-  const user_id = genId(prefix);
-  const now     = new Date().toISOString();
-  const tarif   = getTarifMap();
-  const devDef  = parseFloat(max_deviasi_km || tarif.deviasi_default_km || 1);
-
-  // Hash password sederhana (MD5-like via Apps Script, cukup untuk proteksi)
-  const passHash = password ? hashSimple(password) : '';
-
-  appendRow(sheet, HEADERS.users, {
-    user_id,
-    nama_lengkap,
-    no_wa:              no_wa ? normalizeWA(no_wa) : '',
-    role:               role || 'siswa',
-    gender:             gender || 'L',
-    sekolah_id,
-    nis_nisn:           nis_nisn || '',
-    status_verifikasi:  status_verifikasi || 'pending',
-    max_deviasi_km:     devDef,
-    home_lat:           home_lat || '',
-    home_lng:           home_lng || '',
-    created_at:         now,
-    last_login:         now,
-    rating_avg:         0,
-    total_trip:         0,
-    email:              emailFinal.toLowerCase(),
-    password_hash:      passHash,
-    google_sub:         google_sub || '',
-  });
-
-  const user = rowToObj(HEADERS.users, findRow(sheet, 'user_id', user_id));
-  const token = createSession(user_id);
-  return {
-    success: true,
-    user_id,
-    session_token: token,
-    user: enrichUser(user, sekolahRow),
-  };
-}
-
-/**
- * Login dengan email + password
- */
-function actionLoginPassword(body) {
-  const { email, password } = body;
-  if (!email || !password) return { success: false, error: 'Email dan password wajib diisi' };
-
-  const sheet   = getSheet(SHEET.USERS);
-  const userRow = findRow(sheet, 'email', email.toLowerCase());
-  if (!userRow) return { success: false, error: 'Email tidak terdaftar' };
-
-  const user = rowToObj(HEADERS.users, userRow);
-  const passHash = hashSimple(password);
-  if (user.password_hash !== passHash)
-    return { success: false, error: 'Password salah' };
-
-  updateCell(sheet, 'email', email.toLowerCase(), 'last_login', new Date().toISOString());
-  const sekolahRow = findRow(getSheet(SHEET.SEKOLAH), 'sekolah_id', user.sekolah_id);
-  const token = createSession(user.user_id);
-
-  return {
-    success: true,
-    session_token: token,
-    user: enrichUser(rowToObj(HEADERS.users, findRow(sheet, 'email', email.toLowerCase())), sekolahRow),
-  };
-}
-
-/**
- * Login / register via Google OAuth
- * Frontend mengirim: google_sub, google_email, google_name, google_picture
- */
-function actionLoginGoogle(body) {
-  const { google_sub, google_email, google_name, sekolah_id, role, gender, nis_nisn, no_wa } = body;
-  if (!google_sub || !google_email) return { success: false, error: 'Data Google tidak valid' };
-
-  const sheet = getSheet(SHEET.USERS);
-  let userRow = findRow(sheet, 'google_sub', google_sub);
-
-  if (!userRow) {
-    // Coba cari via email
-    userRow = findRow(sheet, 'email', google_email.toLowerCase());
-    if (userRow) {
-      // Update google_sub ke akun yang sudah ada
-      updateCell(sheet, 'email', google_email.toLowerCase(), 'google_sub', google_sub);
-      userRow = findRow(sheet, 'google_sub', google_sub);
-    }
-  }
-
-  if (!userRow) {
-    // Pengguna belum terdaftar via Google — perlu melengkapi data
-    if (!sekolah_id) {
-      return {
-        success: false,
-        error: 'google_incomplete',
-        message: 'Silakan lengkapi data untuk menyelesaikan pendaftaran',
-        google_email,
-        google_name,
-        google_sub,
-      };
-    }
-    // Auto-register
-    const regResult = actionRegister({
-      nama_lengkap: google_name || google_email.split('@')[0],
-      email: google_email,
-      google_sub,
-      sekolah_id,
-      role:   role || 'siswa',
-      gender: gender || 'L',
-      nis_nisn: nis_nisn || '',
-      no_wa: no_wa || '',
+    const res = await fetch(url, {
+      method: 'GET',
+      redirect: 'follow',
     });
-    return regResult;
-  }
 
-  // User ditemukan — login
-  updateCell(sheet, 'google_sub', google_sub, 'last_login', new Date().toISOString());
-  const user = rowToObj(HEADERS.users, findRow(sheet, 'google_sub', google_sub));
-  const sekolahRow = findRow(getSheet(SHEET.SEKOLAH), 'sekolah_id', user.sekolah_id);
-  const token = createSession(user.user_id);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const text = await res.text();
 
-  return {
-    success: true,
-    session_token: token,
-    user: enrichUser(user, sekolahRow),
-  };
-}
-
-/**
- * Validasi session token (untuk auto-login)
- */
-function actionValidateSession(body) {
-  const { session_token } = body;
-  if (!session_token) return { success: false, error: 'Token tidak valid' };
-
-  const sessSheet = getSheet(SHEET.SESSIONS);
-  const sessRow   = findRow(sessSheet, 'session_token', session_token);
-  if (!sessRow) return { success: false, error: 'Sesi tidak ditemukan atau sudah berakhir' };
-
-  const sess = rowToObj(HEADERS._sessions, sessRow);
-  if (new Date() > new Date(sess.expires_at)) {
-    deleteRowsWhere(sessSheet, 'session_token', session_token);
-    return { success: false, error: 'Sesi kadaluarsa. Silakan login kembali.' };
-  }
-
-  const userRow    = findRow(getSheet(SHEET.USERS), 'user_id', sess.user_id);
-  if (!userRow) return { success: false, error: 'User tidak ditemukan' };
-  const user       = rowToObj(HEADERS.users, userRow);
-  const sekolahRow = findRow(getSheet(SHEET.SEKOLAH), 'sekolah_id', user.sekolah_id);
-
-  return { success: true, user: enrichUser(user, sekolahRow) };
-}
-
-/**
- * Logout — hapus session
- */
-function actionLogout(body) {
-  if (body.session_token) deleteRowsWhere(getSheet(SHEET.SESSIONS), 'session_token', body.session_token);
-  if (body.user_id)       deleteRowsWhere(getSheet(SHEET.SESSIONS), 'user_id', body.user_id);
-  return { success: true };
-}
-
-function actionUpdateLastLogin(body) {
-  if (!body.user_id) return { success: false };
-  updateCell(getSheet(SHEET.USERS), 'user_id', body.user_id, 'last_login', new Date().toISOString());
-  return { success: true };
-}
-
-function actionGetUser(body) {
-  const key = body.user_id || body.email;
-  const col = body.user_id ? 'user_id' : 'email';
-  const row = findRow(getSheet(SHEET.USERS), col, key);
-  if (!row) return { success: false, error: 'User tidak ditemukan' };
-  const user = rowToObj(HEADERS.users, row);
-  const sekolahRow = findRow(getSheet(SHEET.SEKOLAH), 'sekolah_id', user.sekolah_id);
-  return { success: true, user: enrichUser(user, sekolahRow) };
-}
-
-function actionChangePassword(body) {
-  const { user_id, old_password, new_password } = body;
-  const sheet   = getSheet(SHEET.USERS);
-  const userRow = findRow(sheet, 'user_id', user_id);
-  if (!userRow) return { success: false, error: 'User tidak ditemukan' };
-  const user = rowToObj(HEADERS.users, userRow);
-  if (user.password_hash !== hashSimple(old_password))
-    return { success: false, error: 'Password lama salah' };
-  updateCell(sheet, 'user_id', user_id, 'password_hash', hashSimple(new_password));
-  return { success: true };
-}
-
-// ============================================================
-//  SESSION MANAGEMENT
-// ============================================================
-function createSession(user_id) {
-  const token    = genId('TKN') + '-' + genId('SEC');
-  const now      = new Date();
-  const expires  = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000); // 30 hari
-  appendRow(getSheet(SHEET.SESSIONS), HEADERS._sessions, {
-    session_token: token,
-    user_id,
-    expires_at: expires.toISOString(),
-    created_at: now.toISOString(),
-  });
-  return token;
-}
-
-/**
- * Hash password sederhana menggunakan Utilities.computeDigest
- * Untuk produksi gunakan Google Cloud KMS atau simpan hash di server terpisah
- */
-function hashSimple(plaintext) {
-  if (!plaintext) return '';
-  const bytes = Utilities.computeDigest(
-    Utilities.DigestAlgorithm.SHA_256,
-    plaintext + 'gonceng_v10_salt_sman1widodaren',
-    Utilities.Charset.UTF_8
-  );
-  return bytes.map(b => ('0' + (b & 0xFF).toString(16)).slice(-2)).join('');
-}
-
-// ============================================================
-//  SEKOLAH
-// ============================================================
-function actionGetSekolahList() {
-  const data = getSheet(SHEET.SEKOLAH).getDataRange().getValues().slice(1);
-  const list = data.filter(r=>r[0]).map(r => rowToObj(HEADERS.sekolah, r));
-  return { success: true, sekolah: list };
-}
-
-function actionGetSekolah(body) {
-  const row = findRow(getSheet(SHEET.SEKOLAH), 'sekolah_id', body.sekolah_id);
-  if (!row) return { success: false, error: 'Sekolah tidak ditemukan' };
-  return { success: true, sekolah: rowToObj(HEADERS.sekolah, row) };
-}
-
-// ============================================================
-//  TARIF CONFIG
-// ============================================================
-function actionGetTarifConfig() {
-  return { success: true, tarif: getTarifMap() };
-}
-
-function getTarifMap() {
-  const sheet = getSheet(SHEET.TARIF);
-  const data  = sheet.getDataRange().getValues().slice(1);
-  const map   = {};
-  data.forEach(r => { if (r[0]) map[r[0]] = isNaN(r[1]) ? r[1] : parseFloat(r[1]); });
-  return map;
-}
-
-// ============================================================
-//  DRIVER
-// ============================================================
-function actionGetDrivers(body) {
-  const { sekolah_id, gender, pickup_lat, pickup_lng } = body;
-  const sheet = getSheet(SHEET.USERS);
-  const data  = sheet.getDataRange().getValues().slice(1);
-  const tarif = getTarifMap();
-
-  const drivers = [];
-  data.forEach(row => {
-    const u = rowToObj(HEADERS.users, row);
-    if (u.role !== 'driver') return;
-    if (sekolah_id && u.sekolah_id !== sekolah_id) return;
-    if (gender && u.gender !== gender) return;
-    if (u.status_verifikasi !== 'verified') return;
-
-    let inRange = true;
-    if (pickup_lat && u.home_lat) {
-      const dist = haversine(parseFloat(pickup_lat), parseFloat(pickup_lng), parseFloat(u.home_lat), parseFloat(u.home_lng));
-      inRange = dist <= parseFloat(u.max_deviasi_km || tarif.deviasi_default_km || 1);
+    // GAS kadang kembalikan HTML error page
+    if (text.trim().startsWith('<')) {
+      console.error('[GAS HTML Error]', text.substring(0, 300));
+      throw new Error('GAS mengembalikan HTML. Pastikan: Deploy as Web App, Execute as Me, Anyone can access.');
     }
-    if (!inRange) return;
 
-    drivers.push({
-      user_id: u.user_id, nama_lengkap: u.nama_lengkap, no_wa: u.no_wa,
-      email: u.email, gender: u.gender, sekolah_id: u.sekolah_id,
-      nis_nisn: u.nis_nisn,
-      rating_avg:     parseFloat(u.rating_avg||0).toFixed(1),
-      total_trip:     parseInt(u.total_trip||0),
-      max_deviasi_km: parseFloat(u.max_deviasi_km||1),
-      home_lat: u.home_lat, home_lng: u.home_lng,
-      kendaraan: u.kendaraan || 'Motor',
-    });
+    return JSON.parse(text);
+  } catch(e) {
+    console.error('[GAS Error]', action, e.message);
+    return { success: false, error: e.message };
+  }
+}
+
+/* ================================================================
+   NAVIGATION
+================================================================ */
+function goTo(screenId, isBack = false) {
+  const next = document.getElementById(screenId);
+  if (!next) return;
+  if (!isBack && state.currentScreen !== screenId)
+    state.screenHistory.push(state.currentScreen);
+  document.querySelectorAll('.screen.active').forEach(s => s.classList.remove('active','slide-back'));
+  next.classList.add('active');
+  if (isBack) next.classList.add('slide-back');
+  state.currentScreen = screenId;
+  updateNav(screenId);
+  onScreenEnter(screenId);
+}
+
+function goBack() {
+  if (!state.screenHistory.length) return;
+  goTo(state.screenHistory.pop(), true);
+}
+
+function updateNav(screenId) {
+  document.querySelectorAll('.bnav-item').forEach(i => i.classList.remove('active'));
+  const navMap = { 'screen-home':'bnav-home','screen-booking':'bnav-booking','screen-history':'bnav-history','screen-profile':'bnav-profile','screen-driver-home':'bnav-home' };
+  if (navMap[screenId]) document.getElementById(navMap[screenId])?.classList.add('active');
+  document.querySelectorAll('.sidebar-nav-item').forEach(i => i.classList.remove('active'));
+  if (navMap[screenId] || screenId === 'screen-home')
+    document.querySelector(`.sidebar-nav-item[data-target="${screenId}"]`)?.classList.add('active');
+  const hideNav = ['screen-splash','screen-onboard','screen-auth','screen-chat-redirect','screen-confirmation'];
+  document.getElementById('bottom-nav').style.display = hideNav.includes(screenId) ? 'none' : '';
+}
+
+function bnavClick(screen, bnavId) {
+  document.querySelectorAll('.bnav-item').forEach(i => i.classList.remove('active'));
+  document.getElementById(bnavId)?.classList.add('active');
+  state.screenHistory = [];
+  goTo(screen);
+}
+
+function sidebarNav(screenId, el) {
+  document.querySelectorAll('.sidebar-nav-item').forEach(i => i.classList.remove('active'));
+  el.classList.add('active');
+  state.screenHistory = [];
+  goTo(screenId);
+}
+
+function onScreenEnter(screenId) {
+  if (screenId === 'screen-booking')       initMap();
+  if (screenId === 'screen-driver-list')   loadAndRenderDriverList();
+  if (screenId === 'screen-history')       loadAndRenderHistory();
+  if (screenId === 'screen-driver-home')   loadAndRenderDriverDashboard();
+  if (screenId === 'screen-order-summary') fillOrderSummary();
+  if (screenId === 'screen-profile')       fillProfile();
+  if (screenId === 'screen-home' || screenId === 'screen-driver-home') fillHomeProfile();
+}
+
+/* ================================================================
+   ONBOARDING
+================================================================ */
+function nextOnboard() {
+  state.onboardStep++;
+  if (state.onboardStep >= onboardSlides.length) { goTo('screen-auth'); return; }
+  const s = onboardSlides[state.onboardStep];
+  document.getElementById('ob-emoji').textContent = s.emoji;
+  document.getElementById('ob-title').innerHTML = s.title;
+  document.getElementById('ob-desc').textContent = s.desc;
+  document.querySelectorAll('.onboard-dot').forEach((d,i) => d.classList.toggle('active', i === state.onboardStep));
+}
+
+/* ================================================================
+   AUTH v10 — Email/Password + Google (TANPA OTP)
+================================================================ */
+function switchAuthTab(tab) {
+  document.getElementById('tab-login').classList.toggle('active', tab === 'login');
+  document.getElementById('tab-register').classList.toggle('active', tab === 'register');
+  document.getElementById('panel-login').classList.toggle('hidden', tab !== 'login');
+  document.getElementById('panel-register').classList.toggle('hidden', tab !== 'register');
+  document.getElementById('panel-google-complete').classList.add('hidden');
+}
+
+function toggleEye(inputId, btn) {
+  const inp = document.getElementById(inputId);
+  if (inp.type === 'password') { inp.type = 'text'; btn.textContent = '🙈'; }
+  else { inp.type = 'password'; btn.textContent = '👁️'; }
+}
+
+async function doLogin() {
+  const identifier = document.getElementById('login-identifier').value.trim();
+  const password   = document.getElementById('login-password').value;
+  if (!identifier || !password) { showToast('❌ Isi email/username dan password','error'); return; }
+
+  showLoading('Masuk...');
+  const res = await apiCall('loginPassword', { email: identifier, password });
+  hideLoading();
+
+  if (res.demo) {
+    // Demo mode fallback
+    loginSuccess({
+      user_id:'USR-DEMO', nama_lengkap:'Demo Pengguna', email:'demo@sman1widodaren.sch.id',
+      no_wa:'081234567890', role:'siswa', gender:'L', sekolah_id:'SCH-001',
+      nama_sekolah: SEKOLAH_NAMA, sekolah_lat: SEKOLAH_LAT, sekolah_lng: SEKOLAH_LNG,
+      home_lat: SEKOLAH_LAT + 0.02, home_lng: SEKOLAH_LNG + 0.02,
+      max_deviasi_km:1, rating_avg:0, total_trip:0, status_verifikasi:'verified',
+      nis_nisn:'1234567890',
+    }, 'demo-session-token');
+    return;
+  }
+  if (res.success && res.user) {
+    loginSuccess(res.user, res.session_token);
+  } else {
+    showToast('❌ ' + (res.error || 'Login gagal'), 'error');
+  }
+}
+
+async function submitRegister() {
+  const nama_lengkap = document.getElementById('reg-name').value.trim();
+  const nis_nisn     = document.getElementById('reg-nis').value.trim();
+  const sekolah_id   = document.getElementById('reg-school').value;
+  const gender       = document.getElementById('reg-gender').value;
+  const email        = document.getElementById('reg-email').value.trim();
+  const password     = document.getElementById('reg-password').value;
+  const no_wa        = document.getElementById('reg-wa').value.trim();
+  const role         = document.getElementById('reg-role').value;
+
+  if (!nama_lengkap) { showToast('❌ Nama lengkap wajib diisi','error'); return; }
+  if (!email || !email.includes('@')) { showToast('❌ Email tidak valid','error'); return; }
+  if (!password || password.length < 6) { showToast('❌ Password minimal 6 karakter','error'); return; }
+  if (!sekolah_id) { showToast('❌ Pilih sekolah','error'); return; }
+
+  showLoading('Mendaftarkan akun...');
+  const res = await apiCall('register', { nama_lengkap, nis_nisn, sekolah_id, gender, email, password, no_wa: normalizeWA(no_wa), role });
+  hideLoading();
+
+  if (res.demo || res.success) {
+    showToast('🎉 Akun berhasil dibuat!','success');
+    if (res.user) loginSuccess(res.user, res.session_token);
+    else loginSuccess({
+      user_id: res.user_id||'USR-NEW', nama_lengkap, email, no_wa: normalizeWA(no_wa),
+      role, gender, sekolah_id, status_verifikasi:'pending',
+      nama_sekolah: SEKOLAH_NAMA, sekolah_lat: SEKOLAH_LAT, sekolah_lng: SEKOLAH_LNG,
+      max_deviasi_km:TARIF.deviasi_default_km, home_lat:'', home_lng:'', rating_avg:0, total_trip:0,
+    }, res.session_token || 'new-session');
+  } else {
+    showToast('❌ ' + (res.error || 'Gagal daftar'), 'error');
+  }
+}
+
+/* ── Google Login (Google Identity Services) ── */
+function loginWithGoogle() {
+  google.accounts.id.initialize({
+    client_id: '563392434783-1gek7c0lbpdnhca5n68medo5v5lvrkrr.apps.googleusercontent.com',
+    callback: async (response) => {
+      const payload = JSON.parse(atob(response.credential.split('.')[1]));
+      await handleGoogleCredential({
+        google_sub:     payload.sub,
+        google_email:   payload.email,
+        google_name:    payload.name,
+        google_picture: payload.picture,
+      });
+    },
+    auto_select: false,
+    cancel_on_tap_outside: true,
   });
-
-  return { success: true, drivers };
-}
-
-function actionSetDriverStatus(body) {
-  const { user_id, online } = body;
-  updateCell(getSheet(SHEET.USERS), 'user_id', user_id, 'last_login', new Date().toISOString());
-  PropertiesService.getScriptProperties().setProperty('driver_online_'+user_id, online ? 'true' : 'false');
-  return { success: true, online };
-}
-
-// ============================================================
-//  BOOKING
-// ============================================================
-function actionCreateBooking(body) {
-  const booking_id = genId('BK');
-  const now = new Date().toISOString();
-  const tarif = getTarifMap();
-
-  let biaya_rp = parseFloat(body.biaya_rp || 0);
-  if (!biaya_rp && body.jarak_km) {
-    const raw = Math.max(parseFloat(body.jarak_km) * parseFloat(tarif.tarif_per_km||250), parseFloat(tarif.tarif_minimum||1000));
-    if (body.metode_bayar === 'cash') {
-      const bulat = parseFloat(tarif.cash_bulat_per || 500);
-      biaya_rp = Math.ceil(raw / bulat) * bulat;
-    } else {
-      biaya_rp = Math.round(raw);
-    }
-  }
-
-  appendRow(getSheet(SHEET.BOOKINGS), HEADERS.bookings, {
-    booking_id,
-    penumpang_id: body.penumpang_id || '',
-    driver_id:    body.driver_id    || '',
-    sekolah_id:   body.sekolah_id   || '',
-    pickup_lat:   body.pickup_lat   || '',
-    pickup_lng:   body.pickup_lng   || '',
-    pickup_alamat: body.pickup_alamat || '',
-    tujuan_nama:  body.tujuan_nama  || '',
-    tujuan_lat:   body.tujuan_lat   || '',
-    tujuan_lng:   body.tujuan_lng   || '',
-    tujuan_tipe:  body.tujuan_tipe  || 'sekolah',
-    gender_pref:  body.gender_pref  || '',
-    jadwal:       body.jadwal       || now.substring(11,16),
-    status:       body.status       || 'searching',
-    jarak_km:     parseFloat(body.jarak_km || 0),
-    biaya_rp,
-    metode_bayar: body.metode_bayar || 'cash',
-    deviasi_km:   parseFloat(body.deviasi_km || 0),
-    created_at:   now, completed_at: '', rating: 0,
-  });
-
-  // Buat payment + hitung admin_fee_rp (5%)
-  const admin_fee_rp = Math.round(biaya_rp * parseFloat(tarif.admin_fee_pct||5) / 100);
-  const pay_id = genId('PAY');
-  const periode = now.substring(0,7); // YYYY-MM
-  appendRow(getSheet(SHEET.PAYMENTS), HEADERS.payments, {
-    payment_id: pay_id, booking_id,
-    user_id: body.penumpang_id || '',
-    metode: body.metode_bayar || 'cash',
-    nominal_asli: biaya_rp, nominal_bayar: biaya_rp,
-    selisih_cash: 0, status: 'pending',
-    created_at: now, settled_at: '',
-    admin_fee_rp,
-    akumulasi_admin_driver: '',  // dihitung via getAdminFeeDriver
-    periode_admin: periode,
-    status_setor_admin: 'belum_setor',
-    tgl_setor_admin: '',
-  });
-
-  return { success: true, booking_id, payment_id: pay_id, biaya_rp, admin_fee_rp };
-}
-
-function actionConfirmBooking(body) {
-  const { booking_id, driver_id, penumpang_id, rating } = body;
-  const now = new Date().toISOString();
-  const bSheet = getSheet(SHEET.BOOKINGS);
-
-  updateCell(bSheet, 'booking_id', booking_id, 'status', 'completed');
-  updateCell(bSheet, 'booking_id', booking_id, 'completed_at', now);
-  if (rating) updateCell(bSheet, 'booking_id', booking_id, 'rating', rating);
-
-  updateCell(getSheet(SHEET.PAYMENTS), 'booking_id', booking_id, 'status', 'settled');
-  updateCell(getSheet(SHEET.PAYMENTS), 'booking_id', booking_id, 'settled_at', now);
-
-  if (driver_id) incrementField(getSheet(SHEET.USERS), 'user_id', driver_id, 'total_trip');
-  if (rating && driver_id) updateRatingAvg(driver_id);
-
-  return { success: true, booking_id };
-}
-
-function actionGetBooking(body) {
-  const row = findRow(getSheet(SHEET.BOOKINGS), 'booking_id', body.booking_id);
-  if (!row) return { success: false, error: 'Booking tidak ditemukan' };
-  return { success: true, booking: rowToObj(HEADERS.bookings, row) };
-}
-
-function actionGetHistory(body) {
-  const { user_id, role, limit } = body;
-  const col = role === 'driver' ? 'driver_id' : 'penumpang_id';
-  const data = getSheet(SHEET.BOOKINGS).getDataRange().getValues().slice(1).reverse();
-  const max  = parseInt(limit || 30);
-  const bookings = [];
-
-  for (const row of data) {
-    if (!row[0]) continue;
-    const b = rowToObj(HEADERS.bookings, row);
-    if (b[col] !== user_id) continue;
-    const otherId  = b[role === 'driver' ? 'penumpang_id' : 'driver_id'];
-    const otherRow = otherId ? findRow(getSheet(SHEET.USERS), 'user_id', otherId) : null;
-    const otherName = otherRow ? rowToObj(HEADERS.users, otherRow).nama_lengkap : '—';
-    bookings.push({
-      ...b,
-      driver_nama:    role === 'driver' ? '' : otherName,
-      penumpang_nama: role === 'driver' ? otherName : '',
-    });
-    if (bookings.length >= max) break;
-  }
-
-  return { success: true, history: bookings };
-}
-
-// ============================================================
-//  PAYMENT & ADMINISTRASI v10
-// ============================================================
-function actionCreatePayment(body) {
-  const pay_id  = genId('PAY');
-  const now     = new Date().toISOString();
-  const nominal = parseFloat(body.nominal_asli || 0);
-  const metode  = body.metode || 'cash';
-  const tarif   = getTarifMap();
-
-  let nominal_bayar = nominal, selisih = 0;
-  if (metode === 'cash') {
-    const bulat = parseFloat(tarif.cash_bulat_per || 500);
-    nominal_bayar = Math.ceil(nominal / bulat) * bulat;
-    selisih = nominal_bayar - nominal;
-  }
-
-  const admin_fee_rp = Math.round(nominal_bayar * parseFloat(tarif.admin_fee_pct||5) / 100);
-  const periode = now.substring(0,7);
-
-  appendRow(getSheet(SHEET.PAYMENTS), HEADERS.payments, {
-    payment_id: pay_id, booking_id: body.booking_id, user_id: body.user_id,
-    metode, nominal_asli: nominal, nominal_bayar, selisih_cash: selisih,
-    status: 'pending', created_at: now, settled_at: '',
-    admin_fee_rp,
-    akumulasi_admin_driver: '',
-    periode_admin: periode,
-    status_setor_admin: 'belum_setor',
-    tgl_setor_admin: '',
-  });
-
-  return { success: true, payment_id: pay_id, nominal_bayar, selisih_cash: selisih, admin_fee_rp };
-}
-
-function actionSettlePayment(body) {
-  const sheet = getSheet(SHEET.PAYMENTS);
-  updateCell(sheet, 'payment_id', body.payment_id, 'status', 'settled');
-  updateCell(sheet, 'payment_id', body.payment_id, 'settled_at', new Date().toISOString());
-  return { success: true };
-}
-
-/**
- * Hitung akumulasi fee admin untuk satu driver (per bulan atau total)
- */
-function actionGetAdminFeeDriver(body) {
-  const { driver_id, periode } = body;
-  const bSheet = getSheet(SHEET.BOOKINGS);
-  const pSheet = getSheet(SHEET.PAYMENTS);
-  const bData  = bSheet.getDataRange().getValues().slice(1);
-  const pData  = pSheet.getDataRange().getValues().slice(1);
-
-  const tarif = getTarifMap();
-  const feeRate = parseFloat(tarif.admin_fee_pct || 5) / 100;
-
-  // Cari semua booking driver ini yang completed
-  const bookingIds = new Set();
-  let totalIncome = 0, totalFee = 0, tripCount = 0;
-  const detail = [];
-
-  for (const b of bData) {
-    if (!b[0]) continue;
-    const bk = rowToObj(HEADERS.bookings, b);
-    if (bk.driver_id !== driver_id) continue;
-    if (bk.status !== 'completed') continue;
-    if (periode && !String(bk.created_at).startsWith(periode)) continue;
-
-    const income = parseFloat(bk.biaya_rp || 0);
-    const fee    = Math.round(income * feeRate);
-    totalIncome += income;
-    totalFee    += fee;
-    tripCount++;
-    bookingIds.add(bk.booking_id);
-    detail.push({ booking_id: bk.booking_id, tanggal: bk.created_at, income, fee, status: bk.status });
-  }
-
-  // Cek status setor dari payments
-  let sudahSetor = 0;
-  for (const p of pData) {
-    if (!p[0]) continue;
-    const pay = rowToObj(HEADERS.payments, p);
-    if (!bookingIds.has(pay.booking_id)) continue;
-    if (pay.status_setor_admin === 'lunas') sudahSetor += parseFloat(pay.admin_fee_rp || 0);
-  }
-
-  return {
-    success: true,
-    driver_id,
-    periode: periode || 'semua',
-    trip_count: tripCount,
-    total_income: totalIncome,
-    total_fee: totalFee,
-    sudah_setor: sudahSetor,
-    belum_setor: Math.max(0, totalFee - sudahSetor),
-    detail,
-  };
-}
-
-/**
- * Catat setoran admin fee driver ke sekolah
- */
-function actionSetorAdminFee(body) {
-  const { driver_id, periode, jumlah_setor, admin_id } = body;
-  const pSheet = getSheet(SHEET.PAYMENTS);
-  const pData  = pSheet.getDataRange().getValues();
-  const headers = pData[0];
-
-  const statusIdx  = headers.indexOf('status_setor_admin');
-  const tglIdx     = headers.indexOf('tgl_setor_admin');
-  const periodeIdx = headers.indexOf('periode_admin');
-  const uidIdx     = headers.indexOf('user_id');
-
-  const now = new Date().toISOString();
-  let updated = 0;
-
-  // Cari booking IDs driver ini yang sesuai periode
-  const bData = getSheet(SHEET.BOOKINGS).getDataRange().getValues().slice(1);
-  const bookingIds = new Set();
-  for (const b of bData) {
-    const bk = rowToObj(HEADERS.bookings, b);
-    if (bk.driver_id === driver_id && (!periode || String(bk.created_at).startsWith(periode)) && bk.status === 'completed')
-      bookingIds.add(bk.booking_id);
-  }
-
-  for (let i=1; i<pData.length; i++) {
-    const row = pData[i];
-    if (!bookingIds.has(row[1])) continue;  // booking_id di col index 1
-    if (statusIdx >= 0) pSheet.getRange(i+1, statusIdx+1).setValue('lunas');
-    if (tglIdx >= 0)    pSheet.getRange(i+1, tglIdx+1).setValue(now.substring(0,10));
-    updated++;
-  }
-
-  return { success: true, updated_rows: updated, jumlah_setor, tgl_setor: now.substring(0,10) };
-}
-
-/**
- * Ringkasan akumulasi admin semua driver (untuk admin sekolah)
- */
-function actionGetAkumulasiAdminAll(body) {
-  const { sekolah_id, periode } = body;
-  const bData = getSheet(SHEET.BOOKINGS).getDataRange().getValues().slice(1);
-  const tarif = getTarifMap();
-  const feeRate = parseFloat(tarif.admin_fee_pct||5)/100;
-
-  const driverMap = {};
-  for (const b of bData) {
-    if (!b[0]) continue;
-    const bk = rowToObj(HEADERS.bookings, b);
-    if (sekolah_id && bk.sekolah_id !== sekolah_id) continue;
-    if (bk.status !== 'completed') continue;
-    if (periode && !String(bk.created_at).startsWith(periode)) continue;
-
-    const d = bk.driver_id;
-    if (!d) continue;
-    if (!driverMap[d]) {
-      const uRow = findRow(getSheet(SHEET.USERS), 'user_id', d);
-      const u = uRow ? rowToObj(HEADERS.users, uRow) : {};
-      driverMap[d] = { driver_id: d, nama: u.nama_lengkap||d, no_wa: u.no_wa||'', trips: 0, income: 0, fee: 0 };
-    }
-    const income = parseFloat(bk.biaya_rp||0);
-    driverMap[d].trips++;
-    driverMap[d].income += income;
-    driverMap[d].fee    += Math.round(income * feeRate);
-  }
-
-  return { success: true, periode: periode||'semua', akumulasi: Object.values(driverMap) };
-}
-
-// ============================================================
-//  RATING
-// ============================================================
-function actionSubmitRating(body) {
-  const { booking_id, dari_user_id, untuk_user_id, bintang, komentar } = body;
-  const rating_id = genId('RT');
-
-  const existing = findRow(getSheet(SHEET.RATINGS), 'booking_id', booking_id);
-  if (existing && rowToObj(HEADERS.ratings, existing).dari_user_id === dari_user_id)
-    return { success: false, error: 'Sudah pernah memberi rating untuk booking ini' };
-
-  appendRow(getSheet(SHEET.RATINGS), HEADERS.ratings, {
-    rating_id, booking_id, dari_user_id, untuk_user_id,
-    bintang: parseInt(bintang||5), komentar: komentar||'',
-    created_at: new Date().toISOString(),
-  });
-
-  updateRatingAvg(untuk_user_id);
-  updateCell(getSheet(SHEET.BOOKINGS), 'booking_id', booking_id, 'rating', bintang);
-  return { success: true, rating_id };
-}
-
-// ============================================================
-//  DEVIASI
-// ============================================================
-function actionCreateDeviasi(body) {
-  const { user_id, sekolah_id, km_diajukan, alasan, durasi_hari } = body;
-  const tarif   = getTarifMap();
-  const userRow = findRow(getSheet(SHEET.USERS), 'user_id', user_id);
-  if (!userRow) return { success: false, error: 'User tidak ditemukan' };
-  const user = rowToObj(HEADERS.users, userRow);
-
-  const km_sebelum = parseFloat(user.max_deviasi_km || tarif.deviasi_default_km || 1);
-  const km_req     = parseFloat(km_diajukan || km_sebelum);
-  const maxAll     = parseFloat(tarif.deviasi_max_km || 3);
-  if (km_req > maxAll) return { success: false, error: `Deviasi max ${maxAll} km` };
-  const maxAdmin   = parseFloat(tarif.deviasi_admin_max || 2);
-  const statusAuto = km_req <= maxAdmin ? 'pending_admin' : 'pending_master';
-
-  const deviasi_id = genId('DEV');
-  appendRow(getSheet(SHEET.DEVIASI), HEADERS.deviasi_requests, {
-    deviasi_id, user_id, sekolah_id: sekolah_id||user.sekolah_id,
-    km_sebelum, km_diajukan: km_req, alasan: alasan||'',
-    durasi_hari: parseInt(durasi_hari||30), status: statusAuto,
-    reviewed_by: '', review_note: '',
-    created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
-  });
-
-  return { success: true, deviasi_id, status: statusAuto };
-}
-
-function actionReviewDeviasi(body) {
-  const { deviasi_id, status, reviewer_id, review_note } = body;
-  const sheet = getSheet(SHEET.DEVIASI);
-  updateCell(sheet, 'deviasi_id', deviasi_id, 'status', status);
-  updateCell(sheet, 'deviasi_id', deviasi_id, 'reviewed_by', reviewer_id||'');
-  updateCell(sheet, 'deviasi_id', deviasi_id, 'review_note', review_note||'');
-  updateCell(sheet, 'deviasi_id', deviasi_id, 'updated_at', new Date().toISOString());
-  if (status === 'approved') {
-    const devRow = findRow(sheet, 'deviasi_id', deviasi_id);
-    if (devRow) {
-      const dev = rowToObj(HEADERS.deviasi_requests, devRow);
-      updateCell(getSheet(SHEET.USERS), 'user_id', dev.user_id, 'max_deviasi_km', dev.km_diajukan);
-    }
-  }
-  return { success: true };
-}
-
-// ============================================================
-//  RINGKASAN DASHBOARD
-// ============================================================
-function actionRefreshRingkasan() {
-  const ss   = SpreadsheetApp.openById(SPREADSHEET_ID);
-  const ring = ss.getSheetByName(SHEET.RINGKASAN);
-  if (!ring) return { success: false, error: 'Sheet RINGKASAN tidak ditemukan' };
-
-  const users    = getSheet(SHEET.USERS).getDataRange().getValues().slice(1).filter(r=>r[0]);
-  const bookings = getSheet(SHEET.BOOKINGS).getDataRange().getValues().slice(1).filter(r=>r[0]);
-  const payments = getSheet(SHEET.PAYMENTS).getDataRange().getValues().slice(1).filter(r=>r[0]);
-  const tarif    = getTarifMap();
-
-  const siswa      = users.filter(r=>r[3]==='siswa').length;
-  const driver     = users.filter(r=>r[3]==='driver').length;
-  const bk_done    = bookings.filter(r=>r[13]==='completed').length;
-  const income     = bookings.filter(r=>r[13]==='completed').reduce((s,r)=>s+parseFloat(r[15]||0),0);
-  const fee_total  = Math.round(income * parseFloat(tarif.admin_fee_pct||5) / 100);
-
-  const updates = [
-    [2, users.length],[3, siswa],[4, driver],
-    [16, bookings.length],[17, bk_done],[19, income],[20, fee_total],
-  ];
-  updates.forEach(([row, val]) => {
-    try { ring.getRange(row, 2).setValue(val); } catch(e) {}
-  });
-
-  return { success: true, refreshed_at: new Date().toISOString(), version: 'v10' };
-}
-
-// ============================================================
-//  SETUP — Jalankan sekali
-// ============================================================
-function setupSheets() {
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-
-  Object.entries(HEADERS).forEach(([name, cols]) => {
-    const sheetName = SHEET[name.toUpperCase()] || name;
-    let sheet = ss.getSheetByName(sheetName);
-    if (!sheet) {
-      sheet = ss.insertSheet(sheetName);
-      sheet.getRange(1, 1, 1, cols.length).setValues([cols]);
-      sheet.getRange(1, 1, 1, cols.length)
-        .setBackground('#1E3A5F').setFontColor('#FFFFFF').setFontWeight('bold');
-      sheet.setFrozenRows(1);
-      sheet.autoResizeColumns(1, cols.length);
-      Logger.log('✅ Sheet dibuat: ' + sheetName);
-    } else {
-      Logger.log('⚠️ Sheet sudah ada: ' + sheetName);
+  google.accounts.id.prompt((notification) => {
+    if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
+      google.accounts.id.renderButton(
+        document.getElementById('google-btn-container'),
+        { theme: 'outline', size: 'large', width: '100%' }
+      );
     }
   });
-
-  // Isi sekolah default SMAN 1 Widodaren
-  const sSheet = ss.getSheetByName(SHEET.SEKOLAH);
-  if (sSheet.getLastRow() <= 1) {
-    sSheet.appendRow(['SCH-001','SMAN 1 Widodaren','20508510',
-      'Jl. Raya Widodaren, Kec. Widodaren','Widodaren','Ngawi','Jawa Timur',
-      -7.379897553058829, 111.2126637940821,'ADM-001','active']);
-    Logger.log('✅ SMAN 1 Widodaren ditambahkan');
-  }
-
-  // Isi tarif_config default
-  const tarifSheet = ss.getSheetByName(SHEET.TARIF);
-  if (tarifSheet.getLastRow() <= 1) {
-    const now = new Date().toISOString();
-    const defaults = [
-      ['tarif_per_km',       500,  'Rp/km',  'Tarif dasar per kilometer',           'MST-001', now],
-      ['tarif_ekspedisi_2x', 700,  'Rp/km',  'Tarif ekspedisi 2×',                  'MST-001', now],
-      ['tarif_ekspedisi_3x', 900,  'Rp/km',  'Tarif ekspedisi 3× barang berat',     'MST-001', now],
-      ['tarif_minimum',      1000, 'Rp',     'Biaya minimum per trip',              'MST-001', now],
-      ['cash_bulat_per',     500,  'Rp',     'Kelipatan pembulatan cash',           'MST-001', now],
-      ['admin_fee_pct',      5,    '%',      'Potongan platform dari total biaya',  'MST-001', now],
-      ['deviasi_default_km', 1,    'km',     'Batas deviasi default',               'MST-001', now],
-      ['deviasi_max_km',     3,    'km',     'Batas maksimum deviasi',              'MST-001', now],
-      ['deviasi_admin_max',  2,    'km',     'Batas deviasi admin',                 'MST-001', now],
-      ['max_radius_match',   0.5,  'km',     'Radius pencarian driver terdekat',    'MST-001', now],
-      ['alarm_admin_hari',   7,    'hari',   'Interval alarm pengingat setor admin','MST-001', now],
-    ];
-    tarifSheet.getRange(2, 1, defaults.length, 6).setValues(defaults);
-    Logger.log('✅ Tarif config default diisi');
-  }
-
-  Logger.log('🎉 Gonceng v10 Setup selesai! SMAN 1 Widodaren siap.');
 }
 
-// ============================================================
-//  UTILS
-// ============================================================
-function getSheet(name) {
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  let sheet = ss.getSheetByName(name);
-  if (!sheet) {
-    sheet = ss.insertSheet(name);
-    const colKey = Object.keys(SHEET).find(k => SHEET[k] === name);
-    const cols = HEADERS[colKey] || HEADERS[name.replace(/^_/,'')] || [];
-    if (cols.length) {
-      sheet.getRange(1,1,1,cols.length).setValues([cols]);
-      sheet.getRange(1,1,1,cols.length).setBackground('#1E3A5F').setFontColor('#FFF').setFontWeight('bold');
-      sheet.setFrozenRows(1);
+async function handleGoogleCredential(googleData) {
+  showLoading('Memproses akun Google...');
+  const res = await apiCall('loginGoogle', {
+    google_sub:   googleData.google_sub,
+    google_email: googleData.google_email,
+    google_name:  googleData.google_name,
+  });
+  hideLoading();
+
+  if (res.demo) {
+    loginSuccess({
+      user_id:'USR-GOOGLE', nama_lengkap: googleData.google_name,
+      email: googleData.google_email, no_wa:'', role:'siswa', gender:'L',
+      sekolah_id:'SCH-001', nama_sekolah: SEKOLAH_NAMA,
+      sekolah_lat: SEKOLAH_LAT, sekolah_lng: SEKOLAH_LNG,
+      home_lat: SEKOLAH_LAT+0.02, home_lng: SEKOLAH_LNG+0.02,
+      max_deviasi_km:1, rating_avg:0, total_trip:0, status_verifikasi:'pending',
+    }, 'google-session');
+    return;
+  }
+
+  if (res.success && res.user) {
+    loginSuccess(res.user, res.session_token);
+  } else if (res.error === 'google_incomplete') {
+    // Perlu melengkapi data
+    state.pendingGoogleData = googleData;
+    document.getElementById('panel-login').classList.add('hidden');
+    document.getElementById('panel-register').classList.add('hidden');
+    document.getElementById('panel-google-complete').classList.remove('hidden');
+    document.getElementById('google-name-preview').textContent = res.google_name || googleData.google_name;
+    document.getElementById('google-email-preview').textContent = res.google_email || googleData.google_email;
+    if (googleData.google_picture) {
+      const img = document.createElement('img');
+      img.src = googleData.google_picture;
+      document.getElementById('google-avatar').innerHTML = '';
+      document.getElementById('google-avatar').appendChild(img);
     }
+  } else {
+    showToast('❌ ' + (res.error||'Google login gagal'),'error');
   }
-  return sheet;
 }
 
-function rowToObj(headers, row) {
-  if (!row) return null;
-  const obj = {};
-  headers.forEach((h,i) => obj[h] = row[i] !== undefined ? row[i] : '');
-  return obj;
-}
-
-function findRow(sheet, colName, value) {
-  const data = sheet.getDataRange().getValues();
-  const colIdx = data[0].indexOf(colName);
-  if (colIdx < 0) return null;
-  for (let i=1; i<data.length; i++) {
-    if (String(data[i][colIdx]).toLowerCase() === String(value).toLowerCase()) return data[i];
+async function completeGoogleRegister() {
+  if (!state.pendingGoogleData) return;
+  const sekolah_id = document.getElementById('gc-school').value;
+  const role   = document.getElementById('gc-role').value;
+  const gender = document.getElementById('gc-gender').value;
+  const nis_nisn = document.getElementById('gc-nis').value.trim();
+  const no_wa  = document.getElementById('gc-wa').value.trim();
+  if (!sekolah_id) { showToast('❌ Pilih sekolah','error'); return; }
+  showLoading('Melengkapi pendaftaran...');
+  const res = await apiCall('loginGoogle', {
+    ...state.pendingGoogleData, sekolah_id, role, gender, nis_nisn,
+    no_wa: normalizeWA(no_wa),
+  });
+  hideLoading();
+  if (res.success && res.user) {
+    state.pendingGoogleData = null;
+    loginSuccess(res.user, res.session_token);
+  } else if (res.demo) {
+    loginSuccess({
+      user_id:'USR-GC', nama_lengkap: state.pendingGoogleData.google_name,
+      email: state.pendingGoogleData.google_email, role, gender, sekolah_id,
+      nama_sekolah: SEKOLAH_NAMA, sekolah_lat:SEKOLAH_LAT, sekolah_lng:SEKOLAH_LNG,
+      home_lat:SEKOLAH_LAT+0.02, home_lng:SEKOLAH_LNG+0.02,
+      max_deviasi_km:1, rating_avg:0, total_trip:0, status_verifikasi:'pending',
+    },'gc-session');
+  } else {
+    showToast('❌ '+(res.error||'Gagal melengkapi pendaftaran'),'error');
   }
-  return null;
 }
 
-function findRowIndex(sheet, colName, value) {
-  const data = sheet.getDataRange().getValues();
-  const colIdx = data[0].indexOf(colName);
-  if (colIdx < 0) return -1;
-  for (let i=1; i<data.length; i++) {
-    if (String(data[i][colIdx]).toLowerCase() === String(value).toLowerCase()) return i+1;
+function loginSuccess(user, token) {
+  state.user = user;
+  state.sessionToken = token || null;
+  state.isDriverMode = (user.role === 'driver');
+  state.dest.label = user.nama_sekolah || SEKOLAH_NAMA;
+  state.dest.lat   = parseFloat(user.sekolah_lat || SEKOLAH_LAT);
+  state.dest.lng   = parseFloat(user.sekolah_lng || SEKOLAH_LNG);
+  // Simpan session ke localStorage untuk auto-login
+  if (token) { try { localStorage.setItem('gonceng_v10_session', token); } catch(e){} }
+  apiCall('updateLastLogin', { user_id: user.user_id });
+  updateSidebarUser();
+  loadTarifConfig();
+  initAlarm();
+  if (state.isDriverMode) { applyDriverMode(); goTo('screen-driver-home'); }
+  else { applyStudentMode(); goTo('screen-home'); }
+}
+
+async function logout() {
+  showLoading('Keluar...');
+  await apiCall('logout', { session_token: state.sessionToken, user_id: state.user?.user_id });
+  hideLoading();
+  try { localStorage.removeItem('gonceng_v10_session'); } catch(e){}
+  state.user = null; state.sessionToken = null; state.isDriverMode = false;
+  state.screenHistory = []; state.driversCache = []; state.historyCache = [];
+  goTo('screen-auth');
+  showToast('👋 Berhasil keluar');
+}
+
+/* ================================================================
+   AUTO-LOGIN via Session Token
+================================================================ */
+async function tryAutoLogin() {
+  let token = null;
+  try { token = localStorage.getItem('gonceng_v10_session'); } catch(e){}
+  if (!token) return false;
+  showLoading('Memuat sesi...');
+  const res = await apiCall('validateSession', { session_token: token });
+  hideLoading();
+  if (res.success && res.user) {
+    loginSuccess(res.user, token);
+    return true;
   }
-  return -1;
-}
-
-function appendRow(sheet, headers, obj) {
-  const row = headers.map(h => obj[h] !== undefined ? obj[h] : '');
-  sheet.appendRow(row);
-}
-
-function updateCell(sheet, keyCol, keyVal, targetCol, newVal) {
-  const data    = sheet.getDataRange().getValues();
-  const headers = data[0];
-  const keyIdx  = headers.indexOf(keyCol);
-  const tarIdx  = headers.indexOf(targetCol);
-  if (keyIdx<0 || tarIdx<0) return false;
-  for (let i=1; i<data.length; i++) {
-    if (String(data[i][keyIdx]).toLowerCase() === String(keyVal).toLowerCase()) {
-      sheet.getRange(i+1, tarIdx+1).setValue(newVal);
-      return true;
-    }
-  }
+  try { localStorage.removeItem('gonceng_v10_session'); } catch(e){}
   return false;
 }
 
-function incrementField(sheet, keyCol, keyVal, targetCol) {
-  const data    = sheet.getDataRange().getValues();
-  const headers = data[0];
-  const keyIdx  = headers.indexOf(keyCol), tarIdx = headers.indexOf(targetCol);
-  for (let i=1; i<data.length; i++) {
-    if (String(data[i][keyIdx]) === String(keyVal)) {
-      sheet.getRange(i+1, tarIdx+1).setValue(parseInt(data[i][tarIdx]||0)+1);
-      return true;
+/* ================================================================
+   TARIF CONFIG
+================================================================ */
+async function loadTarifConfig() {
+  const res = await apiCall('getTarifConfig');
+  if (res.success && res.tarif) {
+    const t = res.tarif;
+    TARIF = {
+      per_km:           t.tarif_per_km || TARIF.per_km,
+      minimum:          t.tarif_minimum || TARIF.minimum,
+      cash_bulat:       t.cash_bulat_per || TARIF.cash_bulat,
+      admin_fee_pct:    t.admin_fee_pct || TARIF.admin_fee_pct,
+      deviasi_default_km: t.deviasi_default_km || TARIF.deviasi_default_km,
+      max_radius_match: t.max_radius_match || TARIF.max_radius_match,
+      alarm_admin_hari: t.alarm_admin_hari || TARIF.alarm_admin_hari,
+    };
+    document.getElementById('fee-rate').textContent = TARIF.admin_fee_pct + '%';
+  }
+}
+
+/* ================================================================
+   ALARM PEMBAYARAN ADMIN FEE (Mingguan / Bulanan)
+================================================================ */
+function initAlarm() {
+  let savedMode = null;
+  try { savedMode = localStorage.getItem('gonceng_alarm_mode'); } catch(e){}
+  if (savedMode) state.alarmMode = savedMode;
+  renderAlarm();
+}
+
+function setAlarmMode(mode) {
+  state.alarmMode = mode;
+  try { localStorage.setItem('gonceng_alarm_mode', mode); } catch(e){}
+  document.getElementById('alarm-weekly').classList.toggle('selected', mode === 'weekly');
+  document.getElementById('alarm-monthly').classList.toggle('selected', mode === 'monthly');
+  renderAlarm();
+}
+
+function renderAlarm() {
+  const now = new Date();
+  let nextDate;
+  if (state.alarmMode === 'weekly') {
+    // Hari Jumat berikutnya
+    const day = now.getDay();
+    const daysUntilFriday = (5 - day + 7) % 7 || 7;
+    nextDate = new Date(now);
+    nextDate.setDate(now.getDate() + daysUntilFriday);
+  } else {
+    // Akhir bulan
+    nextDate = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+  }
+
+  const options = { weekday:'long', year:'numeric', month:'long', day:'numeric' };
+  document.getElementById('alarm-next-date').textContent = nextDate.toLocaleDateString('id-ID', options);
+
+  // Cek apakah sudah jatuh tempo (kurang dari 1 hari)
+  const diff = nextDate - now;
+  const isDue = diff < 86400000; // < 1 hari
+  document.getElementById('alarm-due-warning').classList.toggle('hidden', !isDue);
+  document.getElementById('alarm-card').classList.toggle('active', isDue);
+}
+
+/* ================================================================
+   MODE SWITCHING
+================================================================ */
+function switchMode() {
+  state.isDriverMode = !state.isDriverMode;
+  if (state.isDriverMode) { applyDriverMode(); goTo('screen-driver-home'); }
+  else { applyStudentMode(); goTo('screen-home'); }
+  showToast(state.isDriverMode ? '🛵 Mode Driver aktif!' : '🧑‍🎓 Mode Siswa aktif!');
+}
+
+function applyDriverMode() {
+  document.documentElement.classList.add('driver-mode');
+  document.getElementById('sidebar-mode-icon').textContent = '🛵';
+  document.getElementById('sidebar-mode-label').textContent = 'Mode Driver';
+}
+
+function applyStudentMode() {
+  document.documentElement.classList.remove('driver-mode');
+  document.getElementById('sidebar-mode-icon').textContent = '🧑‍🎓';
+  document.getElementById('sidebar-mode-label').textContent = 'Mode Siswa';
+}
+
+/* ================================================================
+   MAP & LOKASI
+================================================================ */
+let leafletMap = null, pickupMarker = null, routeLayer = null;
+const DEF_LAT = SEKOLAH_LAT + 0.02, DEF_LNG = SEKOLAH_LNG + 0.02;
+
+function initMap() {
+  setTimeout(() => {
+    if (leafletMap) { leafletMap.invalidateSize(); return; }
+    const sLat = parseFloat(state.user?.home_lat) || DEF_LAT;
+    const sLng = parseFloat(state.user?.home_lng) || DEF_LNG;
+    leafletMap = L.map('peta-booking', { zoomControl:true, attributionControl:false }).setView([sLat, sLng], 14);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom:19 }).addTo(leafletMap);
+    const sIcon = L.divIcon({ html:'<div style="background:#FF6B2C;width:32px;height:32px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:3px solid white;box-shadow:0 2px 8px rgba(0,0,0,.3)"></div>', iconSize:[32,32], iconAnchor:[16,32] });
+    L.marker([SEKOLAH_LAT, SEKOLAH_LNG], { icon:sIcon }).addTo(leafletMap).bindPopup('🏫 ' + SEKOLAH_NAMA);
+    leafletMap.on('click', e => setPickup(e.latlng.lat, e.latlng.lng, 'Titik pilihan di peta'));
+    getLocation();
+    window.addEventListener('resize', () => leafletMap?.invalidateSize());
+  }, 200);
+}
+
+function getLocation() {
+  showLoading('Mendeteksi lokasi GPS...');
+  if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(
+      pos => { hideLoading(); setPickup(pos.coords.latitude, pos.coords.longitude, 'Lokasi GPS saat ini'); showToast('📍 Lokasi terdeteksi!','success'); },
+      ()  => { hideLoading(); setPickup(parseFloat(state.user?.home_lat)||DEF_LAT, parseFloat(state.user?.home_lng)||DEF_LNG, 'Lokasi rumah (dari profil)'); showToast('📍 Menggunakan lokasi rumah dari profil'); },
+      { timeout:8000 }
+    );
+  } else { hideLoading(); }
+}
+
+function setPickup(lat, lng, addr) {
+  state.pickup = { lat, lng, addr };
+  document.getElementById('pickup-addr').textContent = addr;
+  document.getElementById('pickup-coords').textContent = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+  if (!leafletMap) return;
+  leafletMap.setView([lat,lng], 15);
+  if (pickupMarker) leafletMap.removeLayer(pickupMarker);
+  const pIcon = L.divIcon({ html:'<div style="background:#06D6A0;width:28px;height:28px;border-radius:50%;border:3px solid white;box-shadow:0 2px 8px rgba(0,0,0,.3);display:flex;align-items:center;justify-content:center;font-size:14px;">📍</div>', iconSize:[28,28], iconAnchor:[14,14] });
+  pickupMarker = L.marker([lat,lng], { icon:pIcon }).addTo(leafletMap).bindPopup('📍 Titik Jemput');
+  calculateRoute(lat, lng);
+  updateSteps(2);
+}
+
+function calculateRoute(pickLat, pickLng) {
+  const dLat = state.dest.lat, dLng = state.dest.lng;
+  if (!dLat || !dLng) return;
+  const dist = haversineDistance(pickLat, pickLng, dLat, dLng);
+  const osrm = `https://router.project-osrm.org/route/v1/driving/${pickLng},${pickLat};${dLng},${dLat}?overview=full&geometries=geojson`;
+  fetch(osrm).then(r=>r.json()).then(data => {
+    const km = data.routes?.[0] ? data.routes[0].distance/1000 : dist;
+    updateFare(km);
+    if (data.routes?.[0]) {
+      if (routeLayer) leafletMap.removeLayer(routeLayer);
+      routeLayer = L.geoJSON(data.routes[0].geometry, { style:{ color:'#FF6B2C', weight:4, opacity:0.8 } }).addTo(leafletMap);
+      leafletMap.fitBounds(routeLayer.getBounds(), { padding:[40,40] });
     }
-  }
-  return false;
+  }).catch(() => updateFare(dist));
 }
 
-function deleteRowsWhere(sheet, colName, value) {
-  const data = sheet.getDataRange().getValues();
-  const colIdx = data[0].indexOf(colName);
-  for (let i=data.length-1; i>=1; i--) {
-    if (String(data[i][colIdx]).toLowerCase() === String(value).toLowerCase()) sheet.deleteRow(i+1);
-  }
-}
-
-function updateRatingAvg(user_id) {
-  const data = getSheet(SHEET.RATINGS).getDataRange().getValues().slice(1);
-  const myR  = data.filter(r=>r[3]===user_id && r[4]);
-  if (!myR.length) return;
-  const avg = myR.reduce((s,r)=>s+parseFloat(r[4]||0),0) / myR.length;
-  updateCell(getSheet(SHEET.USERS), 'user_id', user_id, 'rating_avg', avg.toFixed(2));
-}
-
-function normalizeWA(wa) {
-  let w = String(wa||'').replace(/\D/g,'');
-  if (w.startsWith('0')) w = '62'+w.slice(1);
-  if (!w.startsWith('62')) w = '62'+w;
-  return w;
-}
-
-function genId(prefix) {
-  return `${prefix}-${Date.now()}-${Math.floor(Math.random()*9000+1000)}`;
-}
-
-function haversine(lat1, lng1, lat2, lng2) {
+function haversineDistance(lat1,lng1,lat2,lng2) {
   const R=6371, dLat=(lat2-lat1)*Math.PI/180, dLng=(lng2-lng1)*Math.PI/180;
   const a=Math.sin(dLat/2)**2+Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)**2;
   return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
 }
 
-function enrichUser(user, sekolahRow) {
-  if (!user) return null;
-  const s = sekolahRow ? rowToObj(HEADERS.sekolah, sekolahRow) : {};
-  // Pastikan password_hash tidak dikirim ke client
-  const safe = { ...user };
-  delete safe.password_hash;
-  delete safe.google_sub;
-  return {
-    ...safe,
-    nama_sekolah:   s.nama_sekolah   || SEKOLAH_UTAMA.nama,
-    sekolah_lat:    s.latitude       || SEKOLAH_UTAMA.lat,
-    sekolah_lng:    s.longitude      || SEKOLAH_UTAMA.lng,
-    alamat_sekolah: s.alamat_lengkap || '',
-    kecamatan:      s.kecamatan      || 'Widodaren',
-    kab_kota:       s.kab_kota       || 'Ngawi',
-  };
+function updateFare(distKm) {
+  const raw   = Math.max(distKm * TARIF.per_km, TARIF.minimum);
+  const metode = state.fareCalc.metode || 'cash';
+  const total  = metode === 'cash' ? Math.ceil(raw / TARIF.cash_bulat) * TARIF.cash_bulat : Math.round(raw);
+  state.fareCalc = { dist: distKm.toFixed(1), raw, total, metode };
+  document.getElementById('fare-dist').textContent = distKm.toFixed(1) + ' km';
+  document.getElementById('fare-base').textContent = 'Rp ' + TARIF.minimum.toLocaleString('id-ID');
+  document.getElementById('fare-per-km').textContent = 'Rp ' + Math.round(distKm * TARIF.per_km).toLocaleString('id-ID');
+  document.getElementById('fare-total').textContent = 'Rp ' + total.toLocaleString('id-ID');
+  document.getElementById('fare-card').style.display = 'block';
+  updateSteps(4);
 }
+
+function selectDest(type, el) {
+  document.querySelectorAll('.dest-opt').forEach(d=>d.classList.remove('selected'));
+  el.classList.add('selected');
+  state.dest.type = type;
+  const customInput = document.getElementById('custom-dest-input');
+  if (type === 'custom') {
+    customInput.classList.remove('hidden');
+    state.dest.lat = DEF_LAT + 0.01; state.dest.lng = DEF_LNG + 0.01; state.dest.label = 'Titik Custom';
+  } else {
+    customInput.classList.add('hidden');
+    if (type === 'sekolah') {
+      state.dest.lat = SEKOLAH_LAT; state.dest.lng = SEKOLAH_LNG; state.dest.label = SEKOLAH_NAMA;
+    } else {
+      state.dest.lat = parseFloat(state.user?.home_lat||DEF_LAT);
+      state.dest.lng = parseFloat(state.user?.home_lng||DEF_LNG);
+      state.dest.label = 'Rumah';
+    }
+  }
+  document.getElementById('dest-addr').textContent = state.dest.label;
+  if (state.pickup.lat) calculateRoute(state.pickup.lat, state.pickup.lng);
+}
+
+function updateSteps(activeStep) {
+  for (let i=1;i<=4;i++) {
+    const el = document.getElementById(`step-${i}`);
+    if (!el) continue;
+    el.className = 'step-item';
+    if (i<activeStep) el.classList.add('done');
+    else if (i===activeStep) el.classList.add('active');
+    const line = document.getElementById(`step-line-${i}`);
+    if (line) line.classList.toggle('done', i<activeStep);
+  }
+}
+
+/* ================================================================
+   ORDER SUMMARY
+================================================================ */
+function goToOrderSummary() {
+  if (!state.pickup.lat) { showToast('❌ Deteksi lokasi dulu!','error'); return; }
+  goTo('screen-order-summary');
+}
+
+function fillOrderSummary() {
+  const u = state.user || {};
+  document.getElementById('sum-name').textContent = u.nama_lengkap || '—';
+  document.getElementById('sum-class').textContent = u.nis_nisn ? 'NIS: '+u.nis_nisn : (u.email || '—');
+  document.getElementById('sum-pickup').textContent = state.pickup.addr;
+  document.getElementById('sum-dest').textContent = state.dest.label;
+  document.getElementById('sum-dist').textContent = state.fareCalc.dist + ' km';
+  document.getElementById('sum-total').textContent = 'Rp ' + (state.fareCalc.total||TARIF.minimum).toLocaleString('id-ID');
+  generateTransactionText();
+}
+
+function generateTransactionText() {
+  const u = state.user || {};
+  const lat = state.pickup.lat||DEF_LAT, lng = state.pickup.lng||DEF_LNG;
+  const maps = `https://maps.google.com/?q=${lat},${lng}`;
+  const total = state.fareCalc.total || TARIF.minimum;
+  state.transactionText = `[GONCENG v10] Nama: ${u.nama_lengkap} | NIS: ${u.nis_nisn||'-'} | Sekolah: ${u.nama_sekolah||SEKOLAH_NAMA} | Jemput: ${state.pickup.addr} | Tujuan: ${state.dest.label} | Maps: ${maps} | Jarak: ${state.fareCalc.dist} km | Biaya: Rp ${total.toLocaleString('id-ID')}`;
+}
+
+function copyTransaction() {
+  if (!state.transactionText) generateTransactionText();
+  const cb = () => { const btn=document.getElementById('copy-btn'),txt=document.getElementById('copy-btn-text'); btn.classList.add('copied'); txt.textContent='Tersalin! ✓'; showToast('✅ Teks transaksi tersalin!','success'); setTimeout(()=>{btn.classList.remove('copied');txt.textContent='Copy Teks Transaksi';},3000); };
+  if (navigator.clipboard?.writeText) navigator.clipboard.writeText(state.transactionText).then(cb);
+  else { const t=document.createElement('textarea'); t.value=state.transactionText; document.body.appendChild(t); t.select(); document.execCommand('copy'); document.body.removeChild(t); cb(); }
+}
+
+function openMaps() {
+  window.open(`https://maps.google.com/?q=${state.pickup.lat||DEF_LAT},${state.pickup.lng||DEF_LNG}`,'_blank');
+}
+
+/* ================================================================
+   DRIVER LIST
+================================================================ */
+async function loadAndRenderDriverList() {
+  const grid = document.getElementById('drivers-grid');
+  const chips = document.getElementById('driver-filter-chips');
+  const u = state.user || {};
+  chips.innerHTML = `<div class="filter-chip active">🏫 ${u.nama_sekolah||SEKOLAH_NAMA}</div><div class="filter-chip active">⚧ ${u.gender==='P'?'Perempuan':'Laki-laki'}</div><div class="filter-chip active">📍 Dalam jangkauan</div>`;
+  grid.innerHTML = `<div style="text-align:center;padding:32px;color:var(--text-muted)"><div style="font-size:32px;margin-bottom:8px">⏳</div>Memuat driver dari GAS...</div>`;
+
+  const res = await apiCall('getDrivers', {
+    sekolah_id: u.sekolah_id,
+    gender: u.gender,
+    pickup_lat: state.pickup.lat || u.home_lat,
+    pickup_lng: state.pickup.lng || u.home_lng,
+  });
+
+  let drivers = [];
+  if (res.demo) {
+    drivers = [
+      { user_id:'DRV-001', nama_lengkap:'Ahmad Fauzi', no_wa:'081234567890', gender:'L', sekolah_id:'SCH-001', nis_nisn:'1234567890', rating_avg:4.8, total_trip:47, max_deviasi_km:1, home_lat:SEKOLAH_LAT+0.01, home_lng:SEKOLAH_LNG+0.01, kendaraan:'Honda Vario 125' },
+      { user_id:'DRV-002', nama_lengkap:'Budi Santoso', no_wa:'081234567892', gender:'L', sekolah_id:'SCH-001', nis_nisn:'1122334455', rating_avg:4.7, total_trip:28, max_deviasi_km:1, home_lat:SEKOLAH_LAT+0.02, home_lng:SEKOLAH_LNG+0.01, kendaraan:'Yamaha NMAX' },
+    ];
+  } else if (res.success) {
+    drivers = res.drivers || [];
+  }
+
+  state.driversCache = drivers;
+  chips.innerHTML += `<div class="filter-chip">${drivers.length} driver ditemukan</div>`;
+
+  if (!drivers.length) {
+    grid.innerHTML = `<div class="no-driver-msg" style="grid-column:1/-1"><div class="nd-emoji">😔</div><h3>Tidak Ada Driver</h3><p>Belum ada driver dari sekolah dan gender yang sama di sekitar lokasimu.</p></div>`;
+    return;
+  }
+
+  grid.innerHTML = drivers.map((d,i) => `
+    <div class="driver-card" style="animation-delay:${i*0.08}s" onclick="selectDriver('${d.user_id}')">
+      <div class="driver-avatar">${d.gender==='P'?'👧':'👦'}</div>
+      <div class="driver-info">
+        <div class="driver-name">${d.nama_lengkap}</div>
+        <div class="driver-class">NIS: ${d.nis_nisn||'—'} · ${d.total_trip||0} trip</div>
+        <div class="driver-meta">
+          <span class="driver-badge vehicle">🛵 ${d.kendaraan||'Motor'}</span>
+          <span class="driver-badge rating">⭐ ${parseFloat(d.rating_avg||0).toFixed(1)}</span>
+        </div>
+      </div>
+      <div class="wa-btn" onclick="event.stopPropagation();openWA('${d.user_id}')">💬 WA</div>
+    </div>`).join('');
+}
+
+function selectDriver(uid) {
+  state.selectedDriver = state.driversCache.find(d=>d.user_id===uid);
+  showToast(`👆 ${state.selectedDriver?.nama_lengkap} dipilih`);
+}
+
+async function openWA(uid) {
+  const driver = state.driversCache.find(d=>d.user_id===uid);
+  if (!driver) return;
+  state.selectedDriver = driver;
+  if (!state.transactionText) generateTransactionText();
+
+  const res = await apiCall('createBooking', {
+    penumpang_id: state.user?.user_id,
+    driver_id: driver.user_id,
+    sekolah_id: state.user?.sekolah_id,
+    pickup_lat: state.pickup.lat,
+    pickup_lng: state.pickup.lng,
+    pickup_alamat: state.pickup.addr,
+    tujuan_nama: state.dest.label,
+    tujuan_lat: state.dest.lat,
+    tujuan_lng: state.dest.lng,
+    tujuan_tipe: state.dest.type,
+    gender_pref: state.user?.gender,
+    jarak_km: state.fareCalc.dist,
+    biaya_rp: state.fareCalc.total,
+    metode_bayar: state.fareCalc.metode || 'cash',
+    status: 'searching',
+  });
+
+  if (res.booking_id) state.activeBookingId = res.booking_id;
+  const msg = encodeURIComponent(state.transactionText);
+  window.open(`https://wa.me/${normalizeWA(driver.no_wa)}?text=${msg}`, '_blank');
+  goTo('screen-chat-redirect');
+}
+
+/* ================================================================
+   HISTORY
+================================================================ */
+async function loadAndRenderHistory() {
+  const list = document.getElementById('history-list');
+  list.innerHTML = `<div style="text-align:center;padding:32px;color:var(--text-muted)"><div style="font-size:32px;margin-bottom:8px">⏳</div>Memuat riwayat...</div>`;
+
+  const res = await apiCall('getHistory', { user_id: state.user?.user_id, role: 'penumpang' });
+  let history = res.demo ? [
+    { booking_id:'BK-001', driver_nama:'Ahmad Fauzi', pickup_alamat:'Jl. Merdeka No.12', tujuan_nama:SEKOLAH_NAMA, jarak_km:4.5, biaya_rp:2000, status:'completed', created_at:'2025-07-22', metode_bayar:'qris', rating:5 },
+    { booking_id:'BK-002', driver_nama:'Budi Santoso', pickup_alamat:'Jl. Sudirman No.5', tujuan_nama:SEKOLAH_NAMA, jarak_km:3.2, biaya_rp:1500, status:'completed', created_at:'2025-07-20', metode_bayar:'cash', rating:4 },
+  ] : (res.history || []);
+
+  state.historyCache = history;
+  if (!history.length) { list.innerHTML = `<div class="no-driver-msg"><div class="nd-emoji">📋</div><h3>Belum Ada Riwayat</h3><p>Riwayat trip kamu akan muncul di sini.</p></div>`; return; }
+
+  const sIcon = { completed:'✅', pending:'⏳', searching:'🔍', cancelled:'❌' };
+  list.innerHTML = history.map((h,i) => `
+    <div class="history-item" style="animation-delay:${i*0.07}s">
+      <div class="history-item-top">
+        <div class="hi-left">
+          <div class="hi-date">📅 ${formatTanggal(h.created_at)}</div>
+          <div class="hi-driver">🛵 ${h.driver_nama||'—'}</div>
+          <div class="hi-status ${h.status}">${sIcon[h.status]||'•'} ${h.status}</div>
+        </div>
+        <div style="text-align:right">
+          <div class="hi-cost">Rp ${parseInt(h.biaya_rp||0).toLocaleString('id-ID')}</div>
+          <div style="font-size:10px;color:var(--text-muted);margin-top:2px">${h.metode_bayar||''} · ${h.jarak_km||0} km</div>
+          ${h.rating?`<div style="font-size:11px;color:#B8860B;margin-top:2px">${'⭐'.repeat(parseInt(h.rating))}</div>`:''}
+        </div>
+      </div>
+      <div class="history-route"><div class="hr-dot"></div><span>${h.pickup_alamat||'—'} → ${h.tujuan_nama||'—'}</span></div>
+    </div>`).join('');
+}
+
+/* ================================================================
+   PROFILE
+================================================================ */
+function fillProfile() {
+  const u = state.user || {};
+  document.getElementById('prof-avatar').textContent = u.gender==='P'?'👧':'👦';
+  document.getElementById('prof-name').textContent = u.nama_lengkap||'—';
+  document.getElementById('prof-class').textContent = `NIS: ${u.nis_nisn||'—'} · ${u.nama_sekolah||SEKOLAH_NAMA}`;
+  document.getElementById('prof-email').textContent = u.email||'—';
+  document.getElementById('prof-wa').textContent = u.no_wa ? '+62 '+String(u.no_wa).replace(/^62/,'') : '—';
+  document.getElementById('prof-school').textContent = u.nama_sekolah||SEKOLAH_NAMA;
+  document.getElementById('prof-coords').textContent = u.home_lat ? `${parseFloat(u.home_lat).toFixed(5)}, ${parseFloat(u.home_lng).toFixed(5)}` : 'Belum diatur';
+  document.getElementById('prof-trips').textContent = u.total_trip||0;
+  document.getElementById('prof-rating').textContent = parseFloat(u.rating_avg||0).toFixed(1);
+  document.getElementById('prof-status').textContent = u.status_verifikasi==='verified'?'✓':'⏳';
+}
+
+function fillHomeProfile() {
+  const u = state.user || {};
+  const hn = document.getElementById('home-username'); if(hn) hn.textContent = u.nama_lengkap||'';
+  const hs = document.getElementById('home-school'); if(hs) hs.textContent = u.nama_sekolah||SEKOLAH_NAMA;
+  const dn = document.getElementById('driver-name'); if(dn) dn.textContent = u.nama_lengkap||'';
+  const ds = document.getElementById('driver-school'); if(ds) ds.textContent = u.nama_sekolah||SEKOLAH_NAMA;
+  updateSidebarUser();
+
+  // Load last trip for home screen
+  if (state.historyCache.length) {
+    const last = state.historyCache[0];
+    document.getElementById('home-last-trip').innerHTML = `<div class="trip-card"><div class="trip-icon to-school">🛵</div><div class="trip-info"><div class="trip-route">${last.driver_nama||'Driver'}</div><div class="trip-meta">📅 ${formatTanggal(last.created_at)} · ${last.pickup_alamat||'—'}</div></div><div class="trip-cost">Rp ${parseInt(last.biaya_rp||0).toLocaleString('id-ID')}</div></div>`;
+  }
+}
+
+function updateSidebarUser() {
+  const u = state.user; if (!u) return;
+  const sn = document.getElementById('sb-name'); if(sn) sn.textContent = u.nama_lengkap;
+  const sc = document.getElementById('sb-class'); if(sc) sc.textContent = (u.email||u.no_wa||'')+(u.nama_sekolah?' · '+u.nama_sekolah:'');
+  const sa = document.getElementById('sb-avatar'); if(sa) sa.textContent = u.gender==='P'?'👧':'👦';
+}
+
+/* ================================================================
+   DRIVER DASHBOARD
+================================================================ */
+let driverOnlineState = false;
+
+async function toggleDriverStatus() {
+  driverOnlineState = !driverOnlineState;
+  const toggle=document.getElementById('driver-toggle'),
+        label=document.getElementById('toggle-label'),
+        sub=document.getElementById('toggle-sub'),
+        dot=document.getElementById('status-dot');
+  toggle.classList.toggle('on', driverOnlineState);
+  dot.classList.toggle('online', driverOnlineState);
+  label.textContent = driverOnlineState ? 'Online — Siap Terima Penumpang' : 'Offline';
+  sub.textContent   = driverOnlineState ? 'Kamu akan muncul di daftar driver siswa' : 'Tap untuk mulai menerima penumpang';
+  await apiCall('setDriverStatus', { user_id: state.user?.user_id, online: driverOnlineState });
+  showToast(driverOnlineState ? '🟢 Driver online!' : '⚫ Driver offline', driverOnlineState?'success':'');
+}
+
+async function loadAndRenderDriverDashboard() {
+  const res = await apiCall('getHistory', { user_id: state.user?.user_id, role: 'driver' });
+  let trips = res.demo ? [
+    { booking_id:'BK-001', penumpang_nama:'Sari Nurhayati', pickup_alamat:'Jl. Merdeka No.12', tujuan_nama:SEKOLAH_NAMA, biaya_rp:2000, jarak_km:4.5, status:'completed', created_at:'2025-07-22' },
+    { booking_id:'BK-002', penumpang_nama:'Rina Agustina', pickup_alamat:'Jl. Sudirman No.5', tujuan_nama:SEKOLAH_NAMA, biaya_rp:1500, jarak_km:3.2, status:'completed', created_at:'2025-07-20' },
+  ] : (res.history || []);
+  state.driverTripsCache = trips;
+
+  const completed = trips.filter(t=>t.status==='completed');
+  const totalIncome = completed.reduce((s,t)=>s+parseInt(t.biaya_rp||0),0);
+  const totalFee    = Math.round(totalIncome * TARIF.admin_fee_pct / 100);
+  state.adminFeeCache = { total_fee:totalFee, total_income:totalIncome, trip_count:completed.length, paid:0, unpaid:totalFee };
+
+  // Load actual admin fee data from GAS
+  if (!res.demo) {
+    const feeRes = await apiCall('getAdminFeeDriver', { driver_id: state.user?.user_id });
+    if (feeRes.success) {
+      state.adminFeeCache.paid   = feeRes.sudah_setor || 0;
+      state.adminFeeCache.unpaid = feeRes.belum_setor || 0;
+    }
+  }
+
+  document.getElementById('fee-trips').textContent  = completed.length + ' trip';
+  document.getElementById('fee-income').textContent = 'Rp ' + totalIncome.toLocaleString('id-ID');
+  document.getElementById('fee-total-admin').textContent = 'Rp ' + totalFee.toLocaleString('id-ID');
+  document.getElementById('fee-paid').textContent   = 'Rp ' + state.adminFeeCache.paid.toLocaleString('id-ID');
+  document.getElementById('fee-unpaid').textContent = 'Rp ' + state.adminFeeCache.unpaid.toLocaleString('id-ID');
+
+  renderDriverTrips();
+  renderAlarm();
+}
+
+function renderDriverTrips() {
+  const list = document.getElementById('driver-trip-list');
+  const trips = state.driverTripsCache;
+  if (!trips.length) { list.innerHTML='<div style="text-align:center;padding:20px;color:var(--text-muted)">Belum ada trip</div>'; return; }
+  list.innerHTML = trips.map(t => `
+    <div class="driver-trip-card">
+      <div class="dtc-icon">👤</div>
+      <div class="dtc-info">
+        <div class="dtc-passenger">${t.penumpang_nama||'Penumpang'}</div>
+        <div class="dtc-route">${t.pickup_alamat||'—'} → ${t.tujuan_nama||'—'}</div>
+      </div>
+      <div class="dtc-right">
+        <div class="dtc-amount">Rp ${parseInt(t.biaya_rp||0).toLocaleString('id-ID')}</div>
+        <div class="dtc-fee">Fee: Rp ${Math.round(parseInt(t.biaya_rp||0)*TARIF.admin_fee_pct/100).toLocaleString('id-ID')}</div>
+      </div>
+    </div>`).join('');
+}
+
+/* ================================================================
+   KONFIRMASI TRIP
+================================================================ */
+async function confirmTripDone() {
+  showLoading('Mengonfirmasi trip...');
+  const res = await apiCall('confirmBooking', {
+    booking_id: state.activeBookingId,
+    penumpang_id: state.user?.user_id,
+    driver_id: state.selectedDriver?.user_id,
+    rating: 5,
+  });
+  hideLoading();
+  showToast('✅ Trip dikonfirmasi! Terima kasih.','success');
+  state.screenHistory = [];
+  state.activeBookingId = null;
+  goTo('screen-home');
+}
+
+/* ================================================================
+   UI HELPERS
+================================================================ */
+function showToast(msg, type='') {
+  const t=document.getElementById('toast');
+  t.textContent=msg; t.className=`toast${type?' '+type:''}`;
+  void t.offsetWidth; t.classList.add('show');
+  clearTimeout(window._toastTimer);
+  window._toastTimer=setTimeout(()=>t.classList.remove('show'),3500);
+}
+
+function showLoading(msg='Memuat...') {
+  document.getElementById('loading-text').textContent=msg;
+  document.getElementById('loading-overlay').classList.add('show');
+}
+
+function hideLoading() { document.getElementById('loading-overlay').classList.remove('show'); }
+
+function normalizeWA(wa) {
+  let w=String(wa||'').replace(/\D/g,'');
+  if(w.startsWith('0')) w='62'+w.slice(1);
+  if(!w.startsWith('62')) w='62'+w;
+  return w;
+}
+
+function formatTanggal(str) {
+  if (!str) return '—';
+  try {
+    const d=new Date(str);
+    return `${d.getDate()} ${['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Ags','Sep','Okt','Nov','Des'][d.getMonth()]} ${d.getFullYear()}`;
+  } catch(e) { return String(str); }
+}
+
+/* ================================================================
+   INIT
+================================================================ */
+document.addEventListener('DOMContentLoaded', async () => {
+  document.getElementById('bottom-nav').style.display = 'none';
+  // Coba auto-login dari session tersimpan
+  setTimeout(async () => {
+    const loggedIn = await tryAutoLogin();
+    if (!loggedIn) goTo('screen-onboard');
+  }, 2200);
+});
+</script>
+
+<!-- ============================================================
+   CATATAN INTEGRASI ADS (aktifkan saat live):
+   
+   1. AdSense:
+      <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-XXXXXXXX" crossorigin="anonymous"></script>
+      Ganti div .ads-placeholder dengan tag <ins class="adsbygoogle">
+      
+   2. AdMob (WebView Android):
+      Gunakan admob-plus atau Capacitor plugin
+      Panggil: admob.showBanner({ adId: 'ca-app-pub-XXX/XXX', position: BannerAdPosition.BOTTOM_CENTER })
+      
+   3. Ukuran banner: var(--ads-height) = 80px mobile / 90px tablet / 100px desktop
+      = ≈20% tinggi layar pada smartphone standar (400px visible height)
+      
+   CATATAN INTEGRASI GOOGLE AUTH (aktifkan saat live):
+   1. Daftarkan OAuth client di console.cloud.google.com
+   2. Tambahkan script: <script src="https://accounts.google.com/gsi/client" async></script>
+   3. Ganti fungsi loginWithGoogle() dengan:
+      google.accounts.id.initialize({ client_id: '563392434783-1gek7c0lbpdnhca5n68medo5v5lvrkrr.apps.googleusercontent.com', callback: handleGoogleCredential });
+      google.accounts.id.prompt();
+   4. Di handleGoogleCredential: decode JWT untuk ambil sub, email, name, picture
+      const payload = JSON.parse(atob(credential.split('.')[1]));
+============================================================ -->
+</body>
+</html>
