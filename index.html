@@ -10,7 +10,6 @@
 <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800;900&family=Poppins:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-   <script src="https://accounts.google.com/gsi/client" async defer></script>
 
 <style>
 /* ============================================================
@@ -233,7 +232,6 @@ a { text-decoration: none; color: inherit; }
 .btn-google:hover { border-color:#4285F4; box-shadow:0 4px 16px rgba(66,133,244,0.2); transform:translateY(-1px); }
 .btn-google svg { width:20px; height:20px; flex-shrink:0; }
 
-   
 .auth-divider { display:flex; align-items:center; gap:12px; margin:16px 0; }
 .auth-divider::before,.auth-divider::after { content:''; flex:1; height:1px; background:var(--border); }
 .auth-divider span { color:var(--text-muted); font-size:12px; font-weight:700; }
@@ -693,8 +691,6 @@ a { text-decoration: none; color: inherit; }
             Masuk dengan Google
           </button>
 
-          <div id="google-btn-container" style="width:100%;margin-bottom:10px;"></div>
-           
           <div class="auth-divider"><span>atau</span></div>
 
           <div class="form-group">
@@ -724,8 +720,6 @@ a { text-decoration: none; color: inherit; }
           </button>
           <div class="auth-divider"><span>atau isi form lengkap</span></div>
 
-<div id="google-btn-container" style="width:100%;margin-bottom:10px;"></div>
-           
           <div class="form-group">
             <label class="form-label">👤 Nama Lengkap *</label>
             <input class="form-input" type="text" id="reg-name" placeholder="Nama lengkap sesuai rapor">
@@ -1154,7 +1148,7 @@ a { text-decoration: none; color: inherit; }
 ================================================================ */
 
 // ── KONFIGURASI ──────────────────────────────────────────────
-// ▼ Ganti dengan URL Google Apps Script setelah deploy ▼
+// ▼ URL Google Apps Script (sudah dikonfigurasi) ▼
 const GAS_URL = 'https://script.google.com/macros/s/AKfycbwP3ULLISvsytf63UmaWYroe53WDgh3iGJmL46Kz4lpHUC58t-H0Sv7JVcSD2l-J-O4Ig/exec';
 
 // ── Koordinat SMAN 1 Widodaren (v10) ────────────────────────
@@ -1164,12 +1158,12 @@ const SEKOLAH_NAMA = 'SMAN 1 Widodaren';
 
 // ── Tarif default (di-load dari GAS) ────────────────────────
 let TARIF = {
-  per_km: 500,
+  per_km: 250,
   minimum: 1000,
   cash_bulat: 500,
   admin_fee_pct: 5,
-  deviasi_default_km: 2,
-  max_radius_match: 1.5,
+  deviasi_default_km: 1,
+  max_radius_match: 0.5,
   alarm_admin_hari: 7,
 };
 
@@ -1206,20 +1200,35 @@ const onboardSlides = [
    API CALL — Sinkron ke Google Apps Script → Google Sheets
 ================================================================ */
 async function apiCall(action, data = {}) {
-  if (!GAS_URL || GAS_URL === 'YOUR_GAS_ENDPOINT_URL_HERE') {
+  if (!GAS_URL || GAS_URL === '__DEMO__') {
     console.warn('[DEMO MODE] apiCall:', action);
     return { success: true, demo: true };
   }
   try {
     const payload = { action, ...data };
     if (state.sessionToken) payload._session = state.sessionToken;
-    const res = await fetch(GAS_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+
+    // Gunakan GET + ?payload=JSON untuk menghindari CORS preflight
+    // GAS Web App tidak support OPTIONS preflight dari domain luar.
+    // Kirim via GET parameter — GAS tetap terima dan proses normal.
+    const encoded = encodeURIComponent(JSON.stringify(payload));
+    const url = GAS_URL + '?payload=' + encoded;
+
+    const res = await fetch(url, {
+      method: 'GET',
+      redirect: 'follow',
     });
+
     if (!res.ok) throw new Error('HTTP ' + res.status);
-    return await res.json();
+    const text = await res.text();
+
+    // GAS kadang kembalikan HTML error page
+    if (text.trim().startsWith('<')) {
+      console.error('[GAS HTML Error]', text.substring(0, 300));
+      throw new Error('GAS mengembalikan HTML. Pastikan: Deploy as Web App, Execute as Me, Anyone can access.');
+    }
+
+    return JSON.parse(text);
   } catch(e) {
     console.error('[GAS Error]', action, e.message);
     return { success: false, error: e.message };
@@ -1373,32 +1382,22 @@ async function submitRegister() {
   }
 }
 
-/* ── Google Login (Google Identity Services) ── */
+/* ── Google Login (simulasi — integrasikan Google Identity Services di produksi) ── */
 function loginWithGoogle() {
-  google.accounts.id.initialize({
-    client_id: '563392434783-1gek7c0lbpdnhca5n68medo5v5lvrkrr.apps.googleusercontent.com',
-    callback: async (response) => {
-      // Decode JWT dari Google
-      const payload = JSON.parse(atob(response.credential.split('.')[1]));
-      await handleGoogleCredential({
-        google_sub:     payload.sub,
-        google_email:   payload.email,
-        google_name:    payload.name,
-        google_picture: payload.picture,
-      });
-    },
-    auto_select: false,
-    cancel_on_tap_outside: true,
-  });
-  google.accounts.id.prompt((notification) => {
-    if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
-      // Fallback: tampilkan popup manual
-      google.accounts.id.renderButton(
-        document.getElementById('google-btn-container'),
-        { theme: 'outline', size: 'large', width: '100%' }
-      );
-    }
-  });
+  // Produksi: gunakan Google Identity Services
+  // https://developers.google.com/identity/gsi/web/guides/overview
+  // Contoh panggil: google.accounts.id.initialize({ client_id: '563392434783-1gek7c0lbpdnhca5n68medo5v5lvrkrr.apps.googleusercontent.com', callback: handleGoogleCredential });
+  // Untuk demo, simulasi flow incomplete
+  showToast('🔵 Google Login (Demo) — konfig client_id diperlukan','warning');
+
+  // Simulasi data Google yang diterima
+  const mockGoogleData = {
+    google_sub: 'GOOGLE_SUB_' + Date.now(),
+    google_email: 'siswa.demo@gmail.com',
+    google_name: 'Siswa Demo Google',
+    google_picture: '',
+  };
+  handleGoogleCredential(mockGoogleData);
 }
 
 async function handleGoogleCredential(googleData) {
@@ -2065,7 +2064,7 @@ document.addEventListener('DOMContentLoaded', async () => {
    1. Daftarkan OAuth client di console.cloud.google.com
    2. Tambahkan script: <script src="https://accounts.google.com/gsi/client" async></script>
    3. Ganti fungsi loginWithGoogle() dengan:
-      google.accounts.id.initialize({ client_id: 'YOUR_CLIENT_ID', callback: handleGoogleCredential });
+      google.accounts.id.initialize({ client_id: '563392434783-1gek7c0lbpdnhca5n68medo5v5lvrkrr.apps.googleusercontent.com', callback: handleGoogleCredential });
       google.accounts.id.prompt();
    4. Di handleGoogleCredential: decode JWT untuk ambil sub, email, name, picture
       const payload = JSON.parse(atob(credential.split('.')[1]));
